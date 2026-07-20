@@ -41,7 +41,9 @@ interface TerminalSplitCompositorOptions {
    * instead of starting a text selection.
    */
   onEditorTextClick?: (visualRow: number, visualCol: number) => boolean;
-  onCopySelection?: (text: string) => void;
+  onCopySelection?: (text: string, source: "auto" | "explicit") => void;
+  /** When false, mouse release does not auto-copy; explicit copy (right-click, ctrl+c) still works. Default true. */
+  autoCopyOnSelect?: boolean;
   scrollRepaintThrottleMs?: number;
 }
 
@@ -553,7 +555,8 @@ export class TerminalSplitCompositor {
   private readonly keyboardScrollShortcuts: KeyboardScrollShortcuts;
   private readonly scrollAwayNavigationCard: ScrollAwayNavigationCardOptions | null;
   private readonly onEditorTextClick: ((visualRow: number, visualCol: number) => boolean) | null;
-  private readonly onCopySelection: ((text: string) => void) | null;
+  private readonly onCopySelection: ((text: string, source: "auto" | "explicit") => void) | null;
+  private readonly autoCopyOnSelect: boolean;
   private readonly scrollRepaintThrottleMs: number;
   private extendedKeyboardMode: ExtendedKeyboardMode | null = null;
   private readonly rowsDescriptor: PropertyDescriptor | undefined;
@@ -603,6 +606,7 @@ export class TerminalSplitCompositor {
     this.scrollAwayNavigationCard = options.scrollAwayNavigationCard ?? null;
     this.onEditorTextClick = options.onEditorTextClick ?? null;
     this.onCopySelection = options.onCopySelection ?? null;
+    this.autoCopyOnSelect = options.autoCopyOnSelect !== false;
     this.scrollRepaintThrottleMs = Math.max(0, options.scrollRepaintThrottleMs ?? 0);
     this.rowsDescriptor = descriptorForRows(options.terminal);
     this.originalWrite = options.terminal.write.bind(options.terminal);
@@ -749,7 +753,7 @@ export class TerminalSplitCompositor {
     this.originalWrite(
       beginSynchronizedOutput()
       + disableAutoWrap()
-      + buildFixedClusterPaint(this.decorateCluster(cluster), rawRows, width, this.getShowHardwareCursor())
+      + buildFixedClusterPaint(this.decorateCluster(cluster, width), rawRows, width, this.getShowHardwareCursor())
       + enableAutoWrap()
       + this.mouseReportingStateGuard()
       + endSynchronizedOutput(),
@@ -869,6 +873,18 @@ export class TerminalSplitCompositor {
   private handleInput(data: string): { consume?: boolean; data?: string } | undefined {
     if (this.disposed || this.hasVisibleOverlay()) return undefined;
 
+    if (matchesKey(data, "ctrl+c")) {
+      const selectedText = this.getSelectedText();
+      if (selectedText) {
+        this.lastLeftPress = null;
+        this.onCopySelection?.(selectedText, "explicit");
+        this.clearSelection();
+        this.requestRender();
+        return { consume: true };
+      }
+      return undefined;
+    }
+
     const mousePackets = this.mouseScroll ? parseSgrMousePackets(data) : null;
     if (mousePackets) {
       let wheelDeltas: number[] = [];
@@ -919,7 +935,7 @@ export class TerminalSplitCompositor {
       this.preserveSelectionFocusOnRelease = false;
       const selectedText = this.isLocationInsideSelection(location) ? this.getSelectedText() : "";
       if (selectedText) {
-        this.onCopySelection?.(selectedText);
+        this.onCopySelection?.(selectedText, "explicit");
         this.lastLeftPress = null;
         this.pauseMouseReportingForContextMenu(selectedText);
         return;
@@ -1060,7 +1076,9 @@ export class TerminalSplitCompositor {
     const selectedText = this.getSelectedText();
     if (selectedText) {
       this.lastLeftPress = null;
-      this.onCopySelection?.(selectedText);
+      if (this.autoCopyOnSelect) {
+        this.onCopySelection?.(selectedText, "auto");
+      }
     } else {
       this.clearSelection();
     }
@@ -1365,7 +1383,7 @@ export class TerminalSplitCompositor {
       buffer += sanitizeLine(visibleLines[row] ?? "", width);
     }
 
-    buffer += buildFixedClusterPaint(this.decorateCluster(cluster), rawRows, width, this.getShowHardwareCursor());
+    buffer += buildFixedClusterPaint(this.decorateCluster(cluster, width), rawRows, width, this.getShowHardwareCursor());
     buffer += enableAutoWrap();
     buffer += this.mouseReportingStateGuard();
     buffer += endSynchronizedOutput();
@@ -1495,7 +1513,7 @@ export class TerminalSplitCompositor {
         + setScrollRegion(1, scrollBottom)
         + moveCursor(screenRow, 1)
         + data
-        + buildFixedClusterPaint(this.decorateCluster(cluster), rawRows, width, this.getShowHardwareCursor())
+        + buildFixedClusterPaint(this.decorateCluster(cluster, width), rawRows, width, this.getShowHardwareCursor())
         + enableAutoWrap()
         + this.mouseReportingStateGuard()
         + endSynchronizedOutput();
@@ -1533,13 +1551,31 @@ export class TerminalSplitCompositor {
     return cluster;
   }
 
-  private decorateCluster(cluster: FixedEditorClusterRender): FixedEditorClusterRender {
-    if (this.selectionArea !== "cluster") return cluster;
+  private decorateCluster(cluster: FixedEditorClusterRender, width: number): FixedEditorClusterRender {
+    const lines = this.selectionArea === "cluster"
+      ? cluster.lines.map((line, index) => this.renderSelectionHighlight(line, index, "cluster"))
+      : cluster.lines;
 
     return {
       ...cluster,
-      lines: cluster.lines.map((line, index) => this.renderSelectionHighlight(line, index, "cluster")),
+      lines: this.overlaySelectionHint(lines, width),
     };
+  }
+
+  private overlaySelectionHint(lines: string[], width: number): string[] {
+    if (this.autoCopyOnSelect || lines.length === 0 || width < 1) return lines;
+
+    const selectedText = this.getSelectedText();
+    if (!selectedText) return lines;
+
+    const characterCount = Array.from(selectedText).length;
+    const hint = `\x1b[2m${characterCount} character${characterCount === 1 ? "" : "s"} selected, ctrl+c to copy\x1b[22m `;
+    const hintWidth = visibleWidth(hint);
+    if (hintWidth >= width) return lines;
+
+    const next = [...lines];
+    next[next.length - 1] = this.composeScrollAwayCardLine(next[next.length - 1] ?? "", hint, width - hintWidth, hintWidth, width);
+    return next;
   }
 
   private withClusterRender<T>(render: () => T): T {

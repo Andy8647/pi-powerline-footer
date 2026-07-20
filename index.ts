@@ -2651,7 +2651,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           }
         : undefined,
       onEditorTextClick: (visualRow, visualCol) => positionEditorCursorAt(visualRow, visualCol),
-      onCopySelection: config.copyOnSelect !== false ? (text) => copyTextToClipboard(ctx, text) : undefined,
+      onCopySelection: (text, source) => copyTextToClipboard(ctx, text, source === "explicit" ? "Copied selection" : undefined),
+      autoCopyOnSelect: config.copyOnSelect !== false,
       getShowHardwareCursor: () => typeof tui.getShowHardwareCursor === "function" && tui.getShowHardwareCursor(),
       renderCluster: (width, terminalRows) => {
         const theme = readRenderTheme();

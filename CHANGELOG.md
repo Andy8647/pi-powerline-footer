@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Added
-- **copyOnSelect toggle** — Added `powerline.copyOnSelect` (default `true`) to control whether mouse text selection copies to clipboard. Set to `false` to disable auto-copy-on-select.
+- **copyOnSelect toggle** — Added `powerline.copyOnSelect` (default `true`) to control whether mouse text selection auto-copies to clipboard on release. Set to `false` to disable auto-copy; the selection then stays highlighted with a `N characters selected, ctrl+c to copy` hint, and copies explicitly via `ctrl+c` or right-click.
 
 ## [0.7.0] - 2026-07-14
 
