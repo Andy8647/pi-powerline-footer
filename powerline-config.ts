@@ -24,6 +24,8 @@ export interface PowerlineConfig {
   colors: ColorScheme;
   mouseScroll: boolean;
   fixedEditor: boolean;
+  /** Whether mouse text selection copies to clipboard. Default true. */
+  copyOnSelect: boolean;
   placement: PowerlinePlacement;
   invalidPlacement: string | null;
   welcome: boolean;
@@ -333,6 +335,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     colors: {},
     mouseScroll: true,
     fixedEditor: true,
+    copyOnSelect: true,
     placement: "above",
     invalidPlacement: null,
     welcome: true,
@@ -370,6 +373,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     colors: sanitizeColorOverrides(value.colors),
     mouseScroll: value.mouseScroll !== false,
     fixedEditor: value.fixedEditor !== false,
+    copyOnSelect: value.copyOnSelect !== false,
     placement,
     invalidPlacement,
     welcome: value.welcome !== false,
@@ -434,7 +438,7 @@ export function nextPowerlineSettingWithPreset(existingPowerlineSetting: unknown
 
 export function nextPowerlineSettingWithOptions(
   existingPowerlineSetting: unknown,
-  updates: Partial<Pick<PowerlineConfig, "mouseScroll" | "fixedEditor" | "welcome" | "stashSharpSShortcut" | "placement">>,
+  updates: Partial<Pick<PowerlineConfig, "mouseScroll" | "fixedEditor" | "copyOnSelect" | "welcome" | "stashSharpSShortcut" | "placement">>,
   currentPreset: StatusLinePreset,
 ): unknown {
   if (!isRecord(existingPowerlineSetting)) {

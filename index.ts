@@ -90,6 +90,7 @@ let config: PowerlineConfig = {
   colors: {},
   mouseScroll: true,
   fixedEditor: true,
+  copyOnSelect: true,
   placement: "above",
   invalidPlacement: null,
   welcome: true,
@@ -2650,7 +2651,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           }
         : undefined,
       onEditorTextClick: (visualRow, visualCol) => positionEditorCursorAt(visualRow, visualCol),
-      onCopySelection: (text) => copyTextToClipboard(ctx, text),
+      onCopySelection: config.copyOnSelect !== false ? (text) => copyTextToClipboard(ctx, text) : undefined,
       getShowHardwareCursor: () => typeof tui.getShowHardwareCursor === "function" && tui.getShowHardwareCursor(),
       renderCluster: (width, terminalRows) => {
         const theme = readRenderTheme();
