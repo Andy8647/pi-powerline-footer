@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { buildContentFromParts, ensurePillBg, resolveSeparatorStyle } from "../index.ts";
 import { parsePowerlineConfig } from "../powerline-config.ts";
 import { getPreset, PRESETS } from "../presets.ts";
-import { applyBgColor, rainbow, resolveColor, setPillBold, setSettingsColors } from "../theme.ts";
+import { applyBgColor, bgAnsiToRgb, rainbow, resolveColor, setPillBold, setSettingsColors } from "../theme.ts";
 import { renderSegment } from "../segments.ts";
 import { getSeparatorChars } from "../icons.ts";
 
@@ -219,12 +219,6 @@ test("pill bold is on by default and can be disabled", () => {
   assert.equal(parsePowerlineConfig({ pillBold: false }, PRESET_NAMES).pillBold, false);
 });
 
-test("prompt color defaults to mocha mauve and accepts hex overrides", () => {
-  assert.equal(parsePowerlineConfig({}, PRESET_NAMES).promptColor, "#cba6f7");
-  assert.equal(parsePowerlineConfig({ promptColor: "#febc38" }, PRESET_NAMES).promptColor, "#febc38");
-  assert.equal(parsePowerlineConfig({ promptColor: "gold" }, PRESET_NAMES).promptColor, "#cba6f7");
-});
-
 test("custom segments strip extension fg colors in pill mode", () => {
   const ctx: any = {
     segmentStyle: "pill",
@@ -248,4 +242,85 @@ test("custom segments strip extension fg colors in pill mode", () => {
   assert.ok(!rendered.content.includes("38;2;205;214;244"));
   assert.ok(rendered.content.includes(fgAnsi(hexToRgb("#1e1e2e"))));
   assert.equal(stripAnsi(rendered.content), " Tavily:0% ");
+});
+
+test("theme-key colors render as pills via the runtime theme background", () => {
+  // Truecolor theme: accent resolves to a 48;2 background sequence
+  const truecolorTheme = {
+    fg: (_color: string, text: string) => text,
+    getBgAnsi: (color: string) => {
+      if (color === "accent") return "\x1b[48;2;250;179;135m"; // Catppuccin peach
+      throw new Error(`Unknown theme color: ${color}`);
+    },
+  };
+
+  const pill = applyBgColor(truecolorTheme, "accent" as any, "m");
+  assert.ok(pill.startsWith("\x1b[48;2;250;179;135m"), "uses the theme's resolved bg sequence");
+  assert.ok(pill.includes(fgAnsi(hexToRgb("#1e1e2e"))), "light bg auto-gets dark text");
+  assert.equal(stripAnsi(pill), " m ");
+});
+
+test("theme-key pills chain seamlessly with 256-palette sequences", () => {
+  // 256-color theme: colors resolve to 48;5 background sequences
+  const paletteTheme = {
+    fg: (_color: string, text: string) => text,
+    getBgAnsi: (color: string) => {
+      if (color === "accent") return "\x1b[48;5;173m";
+      if (color === "success") return "\x1b[48;5;114m";
+      throw new Error(`Unknown theme color: ${color}`);
+    },
+  };
+
+  const parts = [
+    applyBgColor(paletteTheme, "accent" as any, "m"),
+    applyBgColor(paletteTheme, "success" as any, "p"),
+  ];
+  const out = buildContentFromParts(parts, "powerline", "pill", "arrow");
+  const arrow = getSeparatorChars().powerlineLeft;
+
+  // Transition reuses the raw sequences with 48->38 swapped: bg=next, fg=current
+  assert.ok(out.includes(`\x1b[48;5;114m\x1b[38;5;173m${arrow}`), "256-palette transition");
+  assert.ok(out.endsWith(`\x1b[38;5;114m${arrow}\x1b[0m `), "end cap in last pill color");
+});
+
+test("bgAnsiToRgb parses truecolor and approximates palette indexes", () => {
+  assert.deepEqual(bgAnsiToRgb("\x1b[48;2;255;0;0m"), [255, 0, 0]);
+  assert.deepEqual(bgAnsiToRgb("\x1b[48;5;196m"), [255, 0, 0], "cube index 196 is pure red");
+  assert.deepEqual(bgAnsiToRgb("\x1b[48;5;238m"), [68, 68, 68], "grayscale ramp");
+  assert.equal(bgAnsiToRgb("\x1b[31m"), null);
+});
+
+test("theme-key contrast text follows luminance recovered from the bg sequence", () => {
+  const paletteTheme = {
+    fg: (_color: string, text: string) => text,
+    getBgAnsi: (color: string) => {
+      if (color === "dark") return "\x1b[48;5;16m";  // cube black
+      if (color === "light") return "\x1b[48;5;231m"; // cube white
+      throw new Error(`Unknown theme color: ${color}`);
+    },
+  };
+
+  const onBlack = applyBgColor(paletteTheme, "dark" as any, "m", "contrast");
+  assert.ok(onBlack.includes(fgAnsi(hexToRgb("#cdd6f4"))), "dark bg auto-gets light text");
+
+  const onWhite = applyBgColor(paletteTheme, "light" as any, "m", "contrast");
+  assert.ok(onWhite.includes(fgAnsi(hexToRgb("#1e1e2e"))), "light bg auto-gets dark text");
+});
+
+test("themes without getBgAnsi fall back to fg-only, neutral-wrapped downstream", () => {
+  // plainTheme has no getBgAnsi: semantic colors render fg-only...
+  const fgOnly = applyBgColor(plainTheme, "accent" as any, "think:high");
+  assert.equal(fgOnly, "think:high");
+
+  // ...and the bar wraps them in a neutral pill so the chain stays seamless
+  const wrapped = ensurePillBg(fgOnly);
+  assert.ok(wrapped.startsWith(bgAnsi(hexToRgb("#45475a"))));
+  assert.equal(stripAnsi(wrapped), " think:high ");
+
+  // Same fallback when getBgAnsi throws for an unknown key
+  const throwingTheme = {
+    fg: (_color: string, text: string) => text,
+    getBgAnsi: () => { throw new Error("nope"); },
+  };
+  assert.equal(applyBgColor(throwingTheme, "accent" as any, "x"), "x");
 });

@@ -40,7 +40,7 @@ import { isStaleExtensionContextError, shouldResetExtendedKeyboardModesOnShutdow
 import { renderFixedEditorCluster } from "./fixed-editor/cluster.ts";
 import { DEFAULT_SCROLL_REPAINT_THROTTLE_MS, emergencyTerminalModeReset, TerminalSplitCompositor } from "./fixed-editor/terminal-split.ts";
 import { inlineEditorQuitCursorRestore } from "./terminal-cursor.ts";
-import { getDefaultColors, hexToAnsi, hexToBgAnsi, isPillBold, setPillBold, setSettingsColors } from "./theme.ts";
+import { bgAnsiToFgAnsi, extractBgAnsi, getDefaultColors, hexToAnsi, hexToBgAnsi, isPillBold, setPillBold, setSettingsColors } from "./theme.ts";
 import {
   isSupportedSuperShortcut,
   matchesConfiguredShortcut,
@@ -964,19 +964,12 @@ function renderSegmentWithWidth(
   return { content: rendered.content, width: visibleWidth(rendered.content), visible: true };
 }
 
-/** Extract background RGB from a pill segment's ANSI content. Returns [r,g,b] or null. */
-function extractBgRgb(content: string): [number, number, number] | null {
-  const match = content.match(/^\x1b\[48;2;(\d+);(\d+);(\d+)m/);
-  if (!match) return null;
-  return [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])];
-}
-
 /** Neutral background for segments that render fg-only content (e.g. rainbow thinking) */
 const NEUTRAL_PILL_BG = "#45475a"; // Catppuccin surface1
 
 /** Wrap a segment that produced no background in a neutral pill so the bar stays seamless. */
 export function ensurePillBg(content: string): string {
-  if (extractBgRgb(content)) return content;
+  if (extractBgAnsi(content)) return content;
   const stripped = content.replace(/\x1b\[0m$/, "");
   const bold = isPillBold() ? "\x1b[1m" : "";
   return `${hexToBgAnsi(NEUTRAL_PILL_BG)}${bold} ${stripped} \x1b[0m`;
@@ -1049,10 +1042,12 @@ export function buildContentFromParts(
   }
 
   // Pill mode: seamless powerline bar (starship style).
-  // Every segment must carry a background (fg-only segments get a neutral one),
-  // and each transition arrow gets bg=next pill color, fg=current pill color.
+  // Every segment must carry a background (fg-only segments get a neutral one).
+  // Transition arrows and caps reuse each pill's background SGR sequence
+  // (48 -> 38 for the foreground counterpart), so both truecolor hex colors
+  // and theme-key colors (any color mode) chain seamlessly.
   const pills = parts.map(ensurePillBg);
-  const bgRgbs = pills.map((p) => extractBgRgb(p) as [number, number, number]);
+  const bgSequences = pills.map((p) => extractBgAnsi(p) as string);
   const capsStyle = effectiveCaps(caps);
 
   // Start from a clean slate so no background/attribute leaks into the bar
@@ -1060,7 +1055,7 @@ export function buildContentFromParts(
 
   // Left cap: rounded start in the first pill's color (bg is terminal default here)
   if (capsStyle === "round") {
-    result += `\x1b[38;2;${bgRgbs[0].join(";")}m${ROUND_LEFT_CAP}`;
+    result += `${bgAnsiToFgAnsi(bgSequences[0])}${ROUND_LEFT_CAP}`;
   }
 
   for (let i = 0; i < pills.length; i++) {
@@ -1068,23 +1063,21 @@ export function buildContentFromParts(
     result += pills[i].replace(/\x1b\[0m$/, "");
 
     if (i < pills.length - 1) {
-      const curRgb = bgRgbs[i];
-      const nextRgb = bgRgbs[i + 1];
-      result += `\x1b[48;2;${nextRgb.join(";")}m\x1b[38;2;${curRgb.join(";")}m${sep}`;
+      result += `${bgSequences[i + 1]}${bgAnsiToFgAnsi(bgSequences[i])}${sep}`;
     }
   }
 
   // Right cap: rounded end, or closing arrow for powerline separators.
   // The last pill's bg is still active at this point — reset it to the default
   // background (\x1b[49m) first or the cap would be drawn fg-on-same-bg (invisible).
-  const lastRgb = bgRgbs[bgRgbs.length - 1];
+  const lastBgFg = bgAnsiToFgAnsi(bgSequences[bgSequences.length - 1]);
   if (capsStyle === "round") {
-    result += `\x1b[49m\x1b[38;2;${lastRgb.join(";")}m${ROUND_RIGHT_CAP}`;
+    result += `\x1b[49m${lastBgFg}${ROUND_RIGHT_CAP}`;
   } else if (
     capsStyle === "arrow" &&
     (separatorStyle === "powerline" || separatorStyle === "powerline-thin")
   ) {
-    result += `\x1b[49m\x1b[38;2;${lastRgb.join(";")}m${sep}`;
+    result += `\x1b[49m${lastBgFg}${sep}`;
   }
 
   result += ansi.reset + " ";

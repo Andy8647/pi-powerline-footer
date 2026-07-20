@@ -21,21 +21,21 @@ export interface PowerlineThemeConfig {
 // Default color scheme (uses pi theme colors)
 const DEFAULT_COLORS: Required<ColorScheme> = {
   model: "#d787af",  // Pink/mauve (matching original colors.ts)
-  shellMode: "#fab387",  // Catppuccin Mocha peach
+  shellMode: "accent",
   path: "#00afaf",  // Teal/cyan (matching original colors.ts)
-  gitDirty: "#fab387",  // Catppuccin peach (distinct from balance yellow)
-  gitClean: "#a6e3a1",  // success green
-  thinking: "#6c7086",  // dim gray
-  thinkingMinimal: "#89b4fa",  // blue
-  thinkingLow: "#74c7ec",  // light blue
-  thinkingMedium: "#f9e2af",  // yellow
-  context: "#6c7086",  // dim
-  contextWarn: "#f9e2af",  // warning
-  contextError: "#f38ba8",  // error red
-  cost: "#a6e3a1",  // green
-  tokens: "#bac2de",  // muted text (Catppuccin Mocha subtext1)
-  separator: "#585b70",  // surface0
-  border: "#45475a",  // surface1
+  gitDirty: "warning",
+  gitClean: "success",
+  thinking: "thinkingOff",
+  thinkingMinimal: "thinkingMinimal",
+  thinkingLow: "thinkingLow",
+  thinkingMedium: "thinkingMedium",
+  context: "dim",
+  contextWarn: "warning",
+  contextError: "error",
+  cost: "text",
+  tokens: "muted",
+  separator: "dim",
+  border: "borderMuted",
 };
 
 // Rainbow colors for high thinking levels
@@ -200,8 +200,73 @@ export function hexToBgAnsi(hex: string): string {
   return `\x1b[48;2;${r};${g};${b}m`;
 }
 
+// Standard xterm palette for the 16 base colors (used to approximate
+// luminance when a theme color resolves to a 256-palette index; users can
+// remap 0-15 in their terminal, so those are best-effort).
+const XTERM_BASE16: Array<[number, number, number]> = [
+  [0, 0, 0], [205, 0, 0], [0, 205, 0], [205, 205, 0],
+  [0, 0, 238], [205, 0, 205], [0, 205, 205], [229, 229, 229],
+  [127, 127, 127], [255, 0, 0], [0, 255, 0], [255, 255, 0],
+  [92, 92, 255], [255, 0, 255], [0, 255, 255], [255, 255, 255],
+];
+
+const XTERM_CUBE_STEPS = [0, 95, 135, 175, 215, 255];
+
+/** Approximate RGB of an xterm 256-palette index. */
+function paletteIndexToRgb(index: number): [number, number, number] | null {
+  if (index < 0 || index > 255) return null;
+  if (index < 16) return XTERM_BASE16[index];
+  if (index < 232) {
+    const n = index - 16;
+    return [
+      XTERM_CUBE_STEPS[Math.floor(n / 36) % 6],
+      XTERM_CUBE_STEPS[Math.floor(n / 6) % 6],
+      XTERM_CUBE_STEPS[n % 6],
+    ];
+  }
+  const level = 8 + (index - 232) * 10;
+  return [level, level, level];
+}
+
+/**
+ * Parse an SGR background sequence (`\x1b[48;2;r;g;bm` or `\x1b[48;5;Nm`)
+ * back into an approximate RGB triple. Returns null when unparseable.
+ */
+export function bgAnsiToRgb(bgAnsi: string): [number, number, number] | null {
+  const truecolor = bgAnsi.match(/^\x1b\[48;2;(\d+);(\d+);(\d+)m$/);
+  if (truecolor) {
+    return [parseInt(truecolor[1]), parseInt(truecolor[2]), parseInt(truecolor[3])];
+  }
+  const palette = bgAnsi.match(/^\x1b\[48;5;(\d+)m$/);
+  if (palette) {
+    return paletteIndexToRgb(parseInt(palette[1]));
+  }
+  return null;
+}
+
+/**
+ * Derive the matching foreground SGR sequence for a background SGR sequence
+ * (`48` -> `38`), so separators/caps can reuse a pill's background color
+ * without knowing its RGB. Works for both truecolor and 256-palette forms.
+ */
+export function bgAnsiToFgAnsi(bgAnsi: string): string {
+  return bgAnsi.replace("\x1b[48", "\x1b[38");
+}
+
+/** Extract the leading background SGR sequence of a pill segment, if any. */
+export function extractBgAnsi(content: string): string | null {
+  const match = content.match(/^\x1b\[48;(?:2;\d+;\d+;\d+|5;\d+)m/);
+  return match ? match[0] : null;
+}
+
 const PILL_DARK_FG = "#1e1e2e";   // Catppuccin base (near-black)
 const PILL_LIGHT_FG = "#cdd6f4"; // Catppuccin text
+
+/** Relative luminance pick: light backgrounds get dark text and vice versa. */
+function contrastFgForRgb(r: number, g: number, b: number): string {
+  const lum = 0.2126 * (r / 255) + 0.7152 * (g / 255) + 0.0722 * (b / 255);
+  return lum > 0.5 ? PILL_DARK_FG : PILL_LIGHT_FG;
+}
 
 /**
  * Compute contrast foreground color for a given background hex.
@@ -209,16 +274,14 @@ const PILL_LIGHT_FG = "#cdd6f4"; // Catppuccin text
  */
 function contrastFg(hex: string): string {
   const h = hex.replace("#", "");
-  const r = parseInt(h.slice(0, 2), 16) / 255;
-  const g = parseInt(h.slice(2, 4), 16) / 255;
-  const b = parseInt(h.slice(4, 6), 16) / 255;
-  // relative luminance
-  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return lum > 0.5 ? PILL_DARK_FG : PILL_LIGHT_FG;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return contrastFgForRgb(r, g, b);
 }
 
 /**
- * Resolve the pill text (foreground) color.
+ * Resolve the pill text (foreground) color for a hex background.
  * "dark"/"light" force a fixed color, "contrast" picks by background luminance,
  * a hex string is used as-is.
  */
@@ -227,6 +290,21 @@ export function resolvePillTextColor(bgHex: string, textColor?: PillTextColor): 
   if (textColor === "dark") return PILL_DARK_FG;
   if (textColor === "light") return PILL_LIGHT_FG;
   return isHexColor(textColor) ? textColor : contrastFg(bgHex);
+}
+
+/**
+ * Resolve the pill text (foreground) color for a background given as an SGR
+ * sequence (theme-key colors included). "contrast" uses the RGB recovered
+ * from the sequence (exact for truecolor, approximate for 256-palette) and
+ * falls back to dark text when the sequence is unparseable.
+ */
+export function resolvePillTextColorForBgAnsi(bgAnsi: string, textColor?: PillTextColor): string {
+  const rgb = bgAnsiToRgb(bgAnsi);
+  const contrast = rgb ? contrastFgForRgb(rgb[0], rgb[1], rgb[2]) : PILL_DARK_FG;
+  if (!textColor || textColor === "contrast") return contrast;
+  if (textColor === "dark") return PILL_DARK_FG;
+  if (textColor === "light") return PILL_LIGHT_FG;
+  return isHexColor(textColor) ? textColor : contrast;
 }
 
 /**
@@ -258,8 +336,12 @@ export function applyColor(
 
 /**
  * Apply a background color pill to text.
- * Uses background ANSI + pill text color for hex colors;
- * falls back to applyColor for semantic/theme colors.
+ *
+ * Hex colors emit a truecolor background directly. Theme-key colors reuse
+ * the runtime theme's resolved background sequence (truecolor or 256-palette
+ * depending on the terminal), so pills follow the user's pi theme. When the
+ * theme cannot provide a background sequence the text falls back to
+ * foreground-only rendering (the bar wraps it in a neutral pill downstream).
  */
 export function applyBgColor(
   theme: ThemeLike,
@@ -267,14 +349,20 @@ export function applyBgColor(
   text: string,
   textColor?: PillTextColor
 ): string {
+  const bold = pillBoldEnabled ? "\x1b[1m" : "";
   if (isHexColor(color)) {
     const fg = resolvePillTextColor(color, textColor);
-    const fgAnsi = hexToAnsi(fg);
-    const bgAnsi = hexToBgAnsi(color);
-    const bold = pillBoldEnabled ? "\x1b[1m" : "";
-    return `${bgAnsi}${fgAnsi}${bold} ${text} \x1b[0m`;
+    return `${hexToBgAnsi(color)}${hexToAnsi(fg)}${bold} ${text} \x1b[0m`;
   }
-  // semantic colors fall back to foreground-only
+  if (typeof theme.getBgAnsi === "function") {
+    try {
+      const bgAnsi = theme.getBgAnsi(color as string);
+      const fgAnsi = hexToAnsi(resolvePillTextColorForBgAnsi(bgAnsi, textColor));
+      return `${bgAnsi}${fgAnsi}${bold} ${text} \x1b[0m`;
+    } catch {
+      // Unknown theme key for this theme: fall through to foreground-only.
+    }
+  }
   return applyColor(theme, color, text);
 }
 

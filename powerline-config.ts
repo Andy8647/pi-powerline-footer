@@ -1,6 +1,6 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { BUILTIN_STATUS_LINE_SEGMENT_IDS } from "./types.ts";
 import { sanitizeColorOverrides } from "./theme.ts";
+import { BUILTIN_STATUS_LINE_SEGMENT_IDS } from "./types.ts";
 import type { ColorScheme, ColorValue, CustomItemPosition, CustomStatusItem, PillTextColor, PowerlineCaps, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions, StatusLineSeparatorStyle } from "./types.ts";
 
 export interface PowerlineConfig {
