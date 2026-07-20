@@ -233,27 +233,20 @@ export function getGitStatus(providerBranch: string | null, pollingMode: GitPoll
 }
 
 /**
- * Force refresh git status (call when you know files changed)
+ * Force refresh git status (call when you know files changed).
+ * Serve-stale: keep the last known counts on screen while a background
+ * refresh runs, instead of blanking the segment to zeros (footer flicker).
  */
 export function invalidateGitStatus(): void {
-  // Don't null the cache — just bump the counter to invalidate pending fetches
-  // and let the stale cache serve while the background refresh runs.
-  // This prevents the git segment from flashing invisible during the async fetch.
+  if (cachedStatus) cachedStatus.timestamp = 0; // expire, but keep serving the stale value
   invalidationCounter++; // Increment to invalidate any pending fetches
-  if (cachedStatus) {
-    // Force stale: next getGitStatus will trigger a background refresh
-    // but still return this value while waiting
-    cachedStatus = { ...cachedStatus, timestamp: 0 };
-  }
 }
 
 /**
- * Force refresh git branch (call when you know branch might have changed)
+ * Force refresh git branch (call when you know branch might have changed).
+ * Serve-stale: keep showing the last known branch until the refresh lands.
  */
 export function invalidateGitBranch(): void {
-  // Same as invalidateGitStatus: serve stale value while refreshing
+  if (cachedBranch) cachedBranch.timestamp = 0; // expire, but keep serving the stale value
   branchInvalidationCounter++;
-  if (cachedBranch) {
-    cachedBranch = { ...cachedBranch, timestamp: 0 };
-  }
 }

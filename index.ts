@@ -30,6 +30,7 @@ import { getSeparator } from "./separators.ts";
 import { hasNerdFonts } from "./icons.ts";
 import { renderSegment } from "./segments.ts";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./git-status.ts";
+import { SessionTokenStatsCache } from "./token-stats.ts";
 import { ansi, getFgAnsiCode } from "./colors.ts";
 import { WelcomeComponent, WelcomeHeader, discoverLoadedCounts, getRecentSessions } from "./welcome.ts";
 import { createWelcomeDismissScheduler } from "./welcome-dismiss.ts";
@@ -1238,6 +1239,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   let forceNextLayoutRecompute = false;
   let lastEditorInputAt = 0;
 
+  // Cache for token counting: avoid re-scanning the full session event list
+  // on every render (250ms-1s cadence). Revalidates the trailing event's
+  // stats signature so in-place streaming updates are not served stale.
+  const tokenStatsCache = new SessionTokenStatsCache();
+
   const getShellPath = () => process.env.SHELL || "/bin/sh";
   const getShellCwd = () => shellSession?.state.cwd ?? currentCtx?.cwd ?? process.cwd();
   const welcomeDismissScheduler = createWelcomeDismissScheduler({
@@ -1259,7 +1265,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   const resetLayoutCache = () => {
     lastLayoutResult = null;
     layoutDirty = true;
-    cachedTokenStats = null;
+    tokenStatsCache.reset();
   };
 
   const requestStatusRender = (delayMs?: number) => {
@@ -2286,70 +2292,18 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     },
   });
 
-  // Cache for token counting: avoid re-scanning the full session event list
-  // on every render (250ms-1s cadence). Only recompute when the event count changes.
-  let cachedTokenStats: {
-    eventCount: number;
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-    cost: number;
-    lastAssistant: AssistantMessage | undefined;
-    thinkingLevelFromSession: string | null;
-  } | null = null;
-
   function buildSegmentContext(ctx: any, theme: Theme): SegmentContext {
     const presetDef = getPreset(config.preset);
     const colors: ColorScheme = presetDef.colors ?? getDefaultColors();
 
-    // Build usage stats and get thinking level from session
-    let input = 0, output = 0, cacheRead = 0, cacheWrite = 0, cost = 0;
-    let lastAssistant: AssistantMessage | undefined;
-    let thinkingLevelFromSession: string | null = null;
-    
+    // Build usage stats and get thinking level from session (cached; the full
+    // event list is only re-scanned when events are appended or the trailing
+    // event's stats-relevant fields change, e.g. in-place streaming updates)
     const sessionEvents = ctx.sessionManager?.getBranch?.() ?? [];
-    const eventCount = sessionEvents.length;
-
-    // Reuse cached token totals when session hasn't grown
-    if (cachedTokenStats && cachedTokenStats.eventCount === eventCount) {
-      input = cachedTokenStats.input;
-      output = cachedTokenStats.output;
-      cacheRead = cachedTokenStats.cacheRead;
-      cacheWrite = cachedTokenStats.cacheWrite;
-      cost = cachedTokenStats.cost;
-      lastAssistant = cachedTokenStats.lastAssistant;
-      thinkingLevelFromSession = cachedTokenStats.thinkingLevelFromSession;
-    } else {
-      for (const e of sessionEvents) {
-        if (!isRecord(e)) {
-          continue;
-        }
-
-        // Check for thinking level change entries
-        if (e.type === "thinking_level_change" && typeof e.thinkingLevel === "string") {
-          thinkingLevelFromSession = e.thinkingLevel;
-        }
-
-        if (e.type !== "message" || !isSessionAssistantMessage(e.message)) {
-          continue;
-        }
-
-        const m = e.message;
-        if (m.stopReason === "error" || m.stopReason === "aborted") {
-          continue;
-        }
-        input += m.usage.input;
-        output += m.usage.output;
-        cacheRead += m.usage.cacheRead;
-        cacheWrite += m.usage.cacheWrite;
-        cost += m.usage.cost.total;
-        if (getUsageTokenTotal(m.usage) > 0) {
-          lastAssistant = m;
-        }
-      }
-      cachedTokenStats = { eventCount, input, output, cacheRead, cacheWrite, cost, lastAssistant, thinkingLevelFromSession };
-    }
+    const tokenStats = tokenStatsCache.get(sessionEvents);
+    const { input, output, cacheRead, cacheWrite, cost } = tokenStats;
+    const lastAssistant = tokenStats.lastAssistant;
+    const thinkingLevelFromSession = tokenStats.thinkingLevelFromSession;
 
     // Calculate context percentage.
     const latestUsage = isStreaming ? liveAssistantUsage ?? lastAssistant?.usage : lastAssistant?.usage;
