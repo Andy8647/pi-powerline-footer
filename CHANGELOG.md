@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **copyOnSelect toggle** — Added `powerline.copyOnSelect` (default `true`) to control whether mouse text selection copies to clipboard. Set to `false` to disable auto-copy-on-select.
+
 ## [0.7.0] - 2026-07-14
 
 ### Added
