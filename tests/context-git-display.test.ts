@@ -53,9 +53,9 @@ test("isGitHubRemoteUrl matches https and ssh remotes only", () => {
 });
 
 test("context_pct percent format shows a bare percentage without icons", () => {
-  // percent is the default format
+  // full is the default format (upstream rendering)
   const defaultFormat = renderSegment("context_pct", createCtx());
-  assert.equal(stripAnsi(defaultFormat.content), "28%");
+  assert.ok(stripAnsi(defaultFormat.content).includes("296k/1.0M (28.2%)"));
 
   const full = renderSegment("context_pct", createCtx({ options: { context: { format: "full" } } }));
   assert.ok(stripAnsi(full.content).includes("296k/1.0M (28.2%)"));
