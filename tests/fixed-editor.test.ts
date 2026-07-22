@@ -1218,6 +1218,67 @@ test("terminal split pauses mouse reporting on right click for the terminal cont
   compositor.dispose();
 });
 
+function editorBoxSelectionHarness() {
+  const terminal = new FakeTerminal();
+  let inputListener: ((data: string) => { consume?: boolean; data?: string } | undefined) | null = null;
+  const copied: string[] = [];
+  const tui = {
+    terminal,
+    addInputListener(listener: (data: string) => { consume?: boolean; data?: string } | undefined) {
+      inputListener = listener;
+      return () => {
+        inputListener = null;
+      };
+    },
+    requestRender() {},
+    render() {
+      return Array.from({ length: 20 }, (_, index) => `line-${index}`);
+    },
+  };
+
+  const compositor = new TerminalSplitCompositor({
+    tui,
+    terminal,
+    onCopySelection: (text) => copied.push(text),
+    // Realistic rounded box: " │ " + " ❯ " prompt prefix + content + " │".
+    renderCluster: () => ({
+      lines: [" ╭─────────────────╮", " │  ❯ hello world │", " ╰─────────────────╯"],
+      cursor: null,
+    }),
+  });
+
+  compositor.install();
+  tui.render(40);
+  // 3 cluster lines over 12 rows: top border row 10, content row 11, bottom 12.
+  return { inputListener: () => inputListener!, compositor, copied };
+}
+
+test("terminal split excludes the editor box borders from a text selection", () => {
+  const { inputListener, compositor, copied } = editorBoxSelectionHarness();
+
+  // Drag the whole content row, from the left border to past the right border.
+  assert.deepEqual(inputListener()("\x1b[<0;1;11M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<32;25;11M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<0;25;11m"), { consume: true });
+
+  assert.deepEqual(copied, ["hello world"]);
+  assert.ok(!copied[0]?.includes("│"));
+
+  compositor.dispose();
+});
+
+test("terminal split copies nothing when selecting a pure box border row", () => {
+  const { inputListener, compositor, copied } = editorBoxSelectionHarness();
+
+  assert.deepEqual(inputListener()("\x1b[<0;1;10M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<32;18;10M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<0;18;10m"), { consume: true });
+
+  assert.deepEqual(copied, []);
+
+  compositor.dispose();
+});
+
 test("terminal split selects visible chat text and copies it on drag release", () => {
   const terminal = new FakeTerminal();
   let inputListener: ((data: string) => { consume?: boolean; data?: string } | undefined) | null = null;

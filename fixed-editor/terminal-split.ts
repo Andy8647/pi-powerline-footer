@@ -1156,6 +1156,47 @@ export class TerminalSplitCompositor {
     return visibleWidth(stripAnsi(lines[lineIndex - firstLine] ?? ""));
   }
 
+  /**
+   * When a cluster line is part of the editor box, return the interior column
+   * range that is real editor text so selection skips the drawn chrome. Pure
+   * border rows (`╭─╮`/`╰─╯` or a flat `─` rule) return an empty range;
+   * content rows (` │ … │`) drop the side borders and the prompt prefix. Any
+   * other line returns null and stays fully selectable.
+   */
+  private editorBorderClip(lineIndex: number): { start: number; end: number } | null {
+    if (this.selectionArea !== "cluster") return null;
+    const strip = (i: number) => (this.visibleClusterLines[i] ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+    const s = strip(lineIndex);
+
+    if (/^ ╭─+╮$/.test(s) || /^ ╰─+╯$/.test(s) || /^ ─+$/.test(s)) {
+      return { start: 0, end: 0 };
+    }
+
+    if (/^ │ .*│$/.test(s)) {
+      // Confirm the row is inside an editor box (a top border sits above it
+      // before any bottom border) before treating its edges as chrome.
+      for (let i = lineIndex - 1; i >= 0; i--) {
+        const above = strip(i);
+        if (/^ ╰─+╯$/.test(above)) break;
+        if (/^ ╭─+╮$/.test(above)) {
+          // Interior text starts after " │ " + the 3-column prompt prefix and
+          // ends before the trailing "│".
+          return { start: 6, end: Math.max(6, visibleWidth(s) - 1) };
+        }
+      }
+    }
+    return null;
+  }
+
+  private clipSelectionRange(lineIndex: number, startCol: number, endCol: number): { startCol: number; endCol: number } {
+    const clip = this.editorBorderClip(lineIndex);
+    if (!clip) return { startCol, endCol };
+    return {
+      startCol: Math.max(startCol, clip.start),
+      endCol: Math.min(endCol, clip.end),
+    };
+  }
+
   private getSelectedText(): string {
     if (!this.selectionArea || !this.selectionAnchor || !this.selectionFocus) return "";
 
@@ -1169,9 +1210,10 @@ export class TerminalSplitCompositor {
     const selected: string[] = [];
     for (let lineIndex = start.line; lineIndex <= end.line; lineIndex++) {
       const line = stripAnsi(lines[lineIndex] ?? "");
-      const startCol = lineIndex === start.line ? start.col : 0;
-      const endCol = lineIndex === end.line ? end.col : Number.POSITIVE_INFINITY;
-      selected.push(sliceColumns(line, startCol, endCol));
+      const rawStart = lineIndex === start.line ? start.col : 0;
+      const rawEnd = lineIndex === end.line ? end.col : Number.POSITIVE_INFINITY;
+      const { startCol, endCol } = this.clipSelectionRange(lineIndex, rawStart, rawEnd);
+      selected.push(endCol > startCol ? sliceColumns(line, startCol, endCol) : "");
     }
 
     return selected.join("\n").replace(/[ \t]+$/gm, "").trimEnd();
@@ -1186,10 +1228,11 @@ export class TerminalSplitCompositor {
     const end = start === this.selectionAnchor ? this.selectionFocus : this.selectionAnchor;
     if (lineIndex < start.line || lineIndex > end.line) return null;
 
-    return {
-      startCol: lineIndex === start.line ? start.col : 0,
-      endCol: lineIndex === end.line ? end.col : Number.POSITIVE_INFINITY,
-    };
+    return this.clipSelectionRange(
+      lineIndex,
+      lineIndex === start.line ? start.col : 0,
+      lineIndex === end.line ? end.col : Number.POSITIVE_INFINITY,
+    );
   }
 
   private isLocationInsideSelection(location: SelectionLocation | null): boolean {
