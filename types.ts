@@ -92,6 +92,13 @@ export type PowerlinePlacement = "above" | "below";
  */
 export type EditorCursorStyle = "block" | "underline" | "terminal";
 
+/**
+ * Editor input box border style.
+ * - "flat": top/bottom rules only, `>` prompt
+ * - "rounded": full rounded box (`╭─╮`/`╰─╯`) with side borders and a `❯` prompt
+ */
+export type EditorBoxStyle = "flat" | "rounded";
+
 export type StatusLinePreset =
   | "default"
   | "minimal"

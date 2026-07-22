@@ -9,7 +9,7 @@ import { isKeyRelease, type AutocompleteProvider, type SelectItem, SelectList, t
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 
-import type { ColorScheme, EditorCursorStyle, PowerlineCaps, SegmentContext, StatusLinePreset, StatusLineSegmentId, StatusLineSeparatorStyle } from "./types.ts";
+import type { ColorScheme, EditorBoxStyle, EditorCursorStyle, PowerlineCaps, SegmentContext, StatusLinePreset, StatusLineSegmentId, StatusLineSeparatorStyle } from "./types.ts";
 import type { PowerlineConfig } from "./powerline-config.ts";
 import { BashTranscriptStore } from "./bash-mode/transcript.ts";
 import {
@@ -31,7 +31,7 @@ import { hasNerdFonts } from "./icons.ts";
 import { renderSegment } from "./segments.ts";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./git-status.ts";
 import { SessionTokenStatsCache } from "./token-stats.ts";
-import { ansi, getFgAnsiCode } from "./colors.ts";
+import { ansi, getFgAnsiCode, hexToFgAnsi } from "./colors.ts";
 import { WelcomeComponent, WelcomeHeader, discoverLoadedCounts, getRecentSessions } from "./welcome.ts";
 import { createWelcomeDismissScheduler } from "./welcome-dismiss.ts";
 import { createRenderScheduler } from "./render-scheduler.ts";
@@ -41,7 +41,7 @@ import { isStaleExtensionContextError, shouldResetExtendedKeyboardModesOnShutdow
 import { renderFixedEditorCluster } from "./fixed-editor/cluster.ts";
 import { DEFAULT_SCROLL_REPAINT_THROTTLE_MS, emergencyTerminalModeReset, TerminalSplitCompositor } from "./fixed-editor/terminal-split.ts";
 import { inlineEditorQuitCursorRestore } from "./terminal-cursor.ts";
-import { bgAnsiToFgAnsi, extractBgAnsi, getDefaultColors, hexToAnsi, hexToBgAnsi, isPillBold, setPillBold, setSettingsColors } from "./theme.ts";
+import { bgAnsiToFgAnsi, extractBgAnsi, getDefaultColors, hexToBgAnsi, isPillBold, setPillBold, setSettingsColors } from "./theme.ts";
 import {
   isSupportedSuperShortcut,
   matchesConfiguredShortcut,
@@ -96,6 +96,7 @@ let config: PowerlineConfig = {
   invalidPlacement: null,
   welcome: true,
   stashSharpSShortcut: false,
+  editorBox: "rounded",
 };
 
 const CUSTOM_COMPACTION_STATUS_KEY = "compact-policy";
@@ -947,6 +948,89 @@ export function parseBashModeSettings(settings: Record<string, unknown>, powerli
     transcriptMaxLines,
     transcriptMaxBytes,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Editor Box
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface EditorBoxOptions {
+  style: EditorBoxStyle;
+  promptColor: `#${string}` | null;
+  bashMode: boolean;
+}
+
+/** Columns available to the inner editor render for a given box style. */
+function editorBoxContentWidth(width: number, style: EditorBoxStyle): number {
+  // Rounded reserves columns for the two side borders and their padding.
+  return Math.max(1, width - (style === "rounded" ? 9 : 3));
+}
+
+/**
+ * Wrap the editor's own render (`originalRender`) in the configured input box.
+ * "flat" reproduces the default top/bottom rules with a gray `>` prompt;
+ * "rounded" draws a full box with side borders and a `❯` prompt. `promptColor`
+ * overrides the prompt glyph color in both modes (null = the default gray).
+ */
+export function renderEditorBox(
+  originalRender: (width: number) => string[],
+  width: number,
+  opts: EditorBoxOptions,
+): string[] {
+  if (width < 10) return originalRender(width);
+
+  const rounded = opts.style === "rounded";
+  const bc = (s: string) => `${getFgAnsiCode("sep")}${s}${ansi.reset}`;
+  const promptGlyph = opts.bashMode ? "$" : rounded ? "❯" : ">";
+  const promptAnsi = opts.promptColor ? hexToFgAnsi(opts.promptColor) : ansi.getFgAnsi(200, 200, 200);
+  const prompt = `${promptAnsi}${promptGlyph}${ansi.reset}`;
+  const promptPrefix = ` ${prompt} `;
+  const contPrefix = "   ";
+  const contentWidth = editorBoxContentWidth(width, opts.style);
+  const lines = originalRender(contentWidth);
+
+  if (lines.length === 0) return lines;
+
+  let bottomBorderIndex = lines.length - 1;
+  for (let i = lines.length - 1; i >= 1; i--) {
+    const stripped = lines[i]?.replace(/\x1b\[[0-9;]*m/g, "") || "";
+    if (stripped.length > 0 && /^─{3,}/.test(stripped)) {
+      bottomBorderIndex = i;
+      break;
+    }
+  }
+
+  const result: string[] = [];
+
+  if (rounded) {
+    const barW = Math.max(1, width - 4);
+    result.push(` ${bc("╭")}${bc("─".repeat(barW))}${bc("╮")}`);
+    for (let i = 1; i < bottomBorderIndex; i++) {
+      const prefix = i === 1 ? promptPrefix : contPrefix;
+      result.push(` ${bc("│")} ${prefix}${lines[i] || ""} ${bc("│")}`);
+    }
+    if (bottomBorderIndex === 1) {
+      const pad = Math.max(0, width - 9);
+      result.push(` ${bc("│")} ${prompt} ${" ".repeat(pad)}${bc("│")}`);
+    }
+    result.push(` ${bc("╰")}${bc("─".repeat(barW))}${bc("╯")}`);
+  } else {
+    result.push(" " + bc("─".repeat(width - 2)));
+    for (let i = 1; i < bottomBorderIndex; i++) {
+      const prefix = i === 1 ? promptPrefix : contPrefix;
+      result.push(`${prefix}${lines[i] || ""}`);
+    }
+    if (bottomBorderIndex === 1) {
+      result.push(`${promptPrefix}${" ".repeat(contentWidth)}`);
+    }
+    result.push(" " + bc("─".repeat(width - 2)));
+  }
+
+  for (let i = bottomBorderIndex + 1; i < lines.length; i++) {
+    result.push(lines[i] || "");
+  }
+
+  return result;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2951,56 +3035,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
       const originalRender = editor.render.bind(editor);
       editor.render = (width: number): string[] => {
-        if (width < 10) {
-          return originalRender(width);
-        }
-
-        // Border and prompt styling
-        const bc = (s: string) => `${getFgAnsiCode("sep")}${s}${ansi.reset}`;
-        const accent = (s: string) => `${hexToAnsi(config.promptColor)}${s}${ansi.reset}`;
-        const promptGlyph = bashModeActive ? "$" : "❯";
-        const prompt = accent(promptGlyph);
-        const barW = Math.max(1, width - 4); // width for "─" between corners
-        const contentWidth = Math.max(1, width - 9); // " │ " (3) + " ❯ " (3) + " │" (2) = 8, +1 safe
-        const lines = originalRender(contentWidth);
-
-        if (lines.length === 0) return lines;
-
-        // Find the bottom border from original render (─ line)
-        let bottomBorderIndex = lines.length - 1;
-        for (let i = lines.length - 1; i >= 1; i--) {
-          const stripped = lines[i]?.replace(/\x1b\[[0-9;]*m/g, "") || "";
-          if (stripped.length > 0 && /^─{3,}/.test(stripped)) {
-            bottomBorderIndex = i;
-            break;
-          }
-        }
-
-        const result: string[] = [];
-        // Top border: ╭───╮
-        result.push(` ${bc("╭")}${bc("─".repeat(barW))}${bc("╮")}`);
-
-        // Content with side borders
-        for (let i = 1; i < bottomBorderIndex; i++) {
-          const isPrompt = i === 1;
-          const prefix = isPrompt ? ` ${prompt} ` : "   ";
-          const line = prefix + (lines[i] || "");
-          result.push(` ${bc("│")} ${line} ${bc("│")}`);
-        }
-
-        // Empty prompt line if no content yet
-        if (bottomBorderIndex === 1) {
-          const pad = Math.max(0, width - 9);
-          result.push(` ${bc("│")} ${prompt} ${" ".repeat(pad)}${bc("│")}`);
-        }
-
-        // Bottom border: ╰───╯
-        result.push(` ${bc("╰")}${bc("─".repeat(barW))}${bc("╯")}`);
-
-        // Ghost suggestions / lines after border
-        for (let i = bottomBorderIndex + 1; i < lines.length; i++) {
-          result.push(lines[i] || "");
-        }
+        const result = renderEditorBox(originalRender, width, {
+          style: config.editorBox,
+          promptColor: config.promptColor,
+          bashMode: bashModeActive,
+        });
 
         // Restyle the software cursor (underline, or hide it for terminal mode)
         if (config.editorCursor !== "block") {

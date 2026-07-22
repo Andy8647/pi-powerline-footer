@@ -67,3 +67,9 @@ export function getFgAnsiCode(color: ColorName): string {
   return getAnsiCode(color);
 }
 
+// Truecolor foreground SGR for a #rrggbb hex string
+export function hexToFgAnsi(hex: string): string {
+  const [r, g, b] = hexToRgb(hex);
+  return ansi.getFgAnsi(r, g, b);
+}
+

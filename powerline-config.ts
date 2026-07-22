@@ -1,7 +1,7 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { sanitizeColorOverrides } from "./theme.ts";
 import { BUILTIN_STATUS_LINE_SEGMENT_IDS } from "./types.ts";
-import type { ColorScheme, ColorValue, CustomItemPosition, CustomStatusItem, EditorCursorStyle, PillTextColor, PowerlineCaps, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions, StatusLineSeparatorStyle } from "./types.ts";
+import type { ColorScheme, ColorValue, CustomItemPosition, CustomStatusItem, EditorBoxStyle, EditorCursorStyle, PillTextColor, PowerlineCaps, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions, StatusLineSeparatorStyle } from "./types.ts";
 
 export interface PowerlineConfig {
   preset: StatusLinePreset;
@@ -30,6 +30,7 @@ export interface PowerlineConfig {
   invalidPlacement: string | null;
   welcome: boolean;
   stashSharpSShortcut: boolean;
+  editorBox: EditorBoxStyle;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -355,6 +356,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     invalidPlacement: null,
     welcome: true,
     stashSharpSShortcut: false,
+    editorBox: "rounded",
   };
 
   const directPreset = normalizePreset(value, presets);
@@ -393,6 +395,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     invalidPlacement,
     welcome: value.welcome !== false,
     stashSharpSShortcut: value.stashSharpSShortcut === true,
+    editorBox: value.editorBox === "flat" ? "flat" : "rounded",
   };
 }
 

@@ -74,6 +74,22 @@ You can also set it in the agent settings file (`~/.pi/agent/settings.json` by d
 
 Use `"fixedEditor": true` to enable it again. `"placement"` accepts `"above"` (default) or `"below"` in both fixed and regular editor modes. It moves only the primary powerline row; notifications and Pi working status stay above, while responsive overflow, bash transcript, and the last-prompt reminder stay below. Set `"welcome": false` to skip the startup welcome overlay/header while leaving powerline itself enabled. Add `"mouseScroll": false` if you want native terminal selection instead of fixed-editor mouse handling. Set `"copyOnSelect": false` to prevent selected text from being automatically copied to the system clipboard; the selection stays highlighted with a character-count hint, and you copy explicitly with `ctrl+c` or right-click instead. In Herdr, tmux, and other terminal multiplexers, fixed-editor scrolling is Pi-owned while fixed-editor mode is on; keep mouse scrolling enabled for the fixed-editor viewport, or use `/powerline fixed-editor off` when you want the host multiplexer scrollback to own the experience. While fixed-editor mouse reporting is enabled, hold Shift during your terminal's normal modifier-click to bypass capture for OSC 8 links; otherwise use `/powerline mouse-scroll off` or `/powerline fixed-editor off` for native link handling.
 
+### Editor input box
+
+The editor input is wrapped in a box. `editorBox` picks the style and `promptColor` recolors the prompt glyph:
+
+```json
+{
+  "powerline": {
+    "editorBox": "rounded",
+    "promptColor": "#cba6f7"
+  }
+}
+```
+
+- `editorBox`: `"flat"` (default) draws top/bottom rules with a gray `>` prompt; `"rounded"` draws a full rounded box (`╭─╮`/`╰─╯`) with side borders and a `❯` prompt.
+- `promptColor`: a `#rrggbb` hex color for the prompt glyph in either style. Default (`null`) leaves it the standard gray.
+
 | Preset | Description |
 |--------|-------------|
 | `default` | Model, thinking, path (basename), git, context, tokens, cost |
