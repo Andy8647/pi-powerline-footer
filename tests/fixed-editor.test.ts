@@ -1218,6 +1218,73 @@ test("terminal split pauses mouse reporting on right click for the terminal cont
   compositor.dispose();
 });
 
+function editorBoxClickHarness() {
+  const terminal = new FakeTerminal();
+  let inputListener: ((data: string) => { consume?: boolean; data?: string } | undefined) | null = null;
+  const copied: string[] = [];
+  const clicks: Array<{ visualRow: number; visualCol: number }> = [];
+  const tui = {
+    terminal,
+    addInputListener(listener: (data: string) => { consume?: boolean; data?: string } | undefined) {
+      inputListener = listener;
+      return () => {
+        inputListener = null;
+      };
+    },
+    requestRender() {},
+    render() {
+      return Array.from({ length: 20 }, (_, index) => `line-${index}`);
+    },
+  };
+
+  const compositor = new TerminalSplitCompositor({
+    tui,
+    terminal,
+    onCopySelection: (text) => copied.push(text),
+    onEditorTextClick: (visualRow, visualCol) => {
+      clicks.push({ visualRow, visualCol });
+      return true;
+    },
+    // A rounded editor box: top border, one text row, bottom border.
+    renderCluster: () => ({
+      lines: [" ╭───────╮", " │ hello │", " ╰───────╯"],
+      cursor: null,
+    }),
+  });
+
+  compositor.install();
+  tui.render(40);
+  // 12 terminal rows minus 3 cluster lines leaves a 9-row root viewport, so the
+  // text row (cluster line 1) is packet row 11.
+  return { inputListener: () => inputListener!, compositor, copied, clicks };
+}
+
+test("terminal split positions the editor cursor on a plain click at release", () => {
+  const { inputListener, compositor, copied, clicks } = editorBoxClickHarness();
+
+  // Text starts at column 6 (" │ " + " ❯ " style prefix); packet col 9 → textCol 2.
+  assert.deepEqual(inputListener()("\x1b[<0;9;11M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<0;9;11m"), { consume: true });
+
+  assert.deepEqual(clicks, [{ visualRow: 0, visualCol: 2 }]);
+  assert.deepEqual(copied, []);
+
+  compositor.dispose();
+});
+
+test("terminal split keeps editor drag-selection working alongside click-to-position", () => {
+  const { inputListener, compositor, copied, clicks } = editorBoxClickHarness();
+
+  assert.deepEqual(inputListener()("\x1b[<0;5;11M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<32;10;11M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<0;10;11m"), { consume: true });
+
+  assert.deepEqual(clicks, []);
+  assert.equal(copied.length, 1);
+
+  compositor.dispose();
+});
+
 test("terminal split selects visible chat text and copies it on drag release", () => {
   const terminal = new FakeTerminal();
   let inputListener: ((data: string) => { consume?: boolean; data?: string } | undefined) | null = null;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyEditorCursorBlink, displayColumnToStringIndex } from "../index.ts";
+import { applyEditorCursorStyle, displayColumnToStringIndex } from "../index.ts";
 import { NERD_ICONS } from "../icons.ts";
 import { parsePowerlineConfig } from "../powerline-config.ts";
 import { PRESETS } from "../presets.ts";
@@ -22,24 +22,33 @@ test("displayColumnToStringIndex maps display columns to string indices", () => 
   assert.equal(displayColumnToStringIndex("abcdef", 3, 2), 5);
 });
 
-test("applyEditorCursorBlink turns the reverse-block cursor into a blinking one", () => {
+test("applyEditorCursorStyle leaves the block cursor untouched", () => {
   const line = "text \x1b[7m \x1b[0m more";
-  assert.equal(applyEditorCursorBlink(line), "text \x1b[5;7m \x1b[0m more");
-  // cursor on a character
-  assert.equal(applyEditorCursorBlink("\x1b[7mx\x1b[0m"), "\x1b[5;7mx\x1b[0m");
-  // multi-char reverse sequences (selection etc.) are left alone
-  assert.equal(applyEditorCursorBlink("\x1b[7mabc\x1b[0m"), "\x1b[7mabc\x1b[0m");
-  // no cursor → unchanged
-  assert.equal(applyEditorCursorBlink("plain"), "plain");
+  assert.equal(applyEditorCursorStyle(line, "block"), line);
 });
 
-test("editor cursor blink and click-to-position configs default on", () => {
+test("applyEditorCursorStyle swaps the reverse block for an underline", () => {
+  assert.equal(applyEditorCursorStyle("text \x1b[7m \x1b[0m more", "underline"), "text \x1b[4m \x1b[0m more");
+  assert.equal(applyEditorCursorStyle("\x1b[7mx\x1b[0m", "underline"), "\x1b[4mx\x1b[0m");
+  // multi-char reverse sequences (selection etc.) are left alone
+  assert.equal(applyEditorCursorStyle("\x1b[7mabc\x1b[0m", "underline"), "\x1b[7mabc\x1b[0m");
+});
+
+test("applyEditorCursorStyle drops the software cursor for terminal mode", () => {
+  assert.equal(applyEditorCursorStyle("text \x1b[7m \x1b[0m more", "terminal"), "text   more");
+  assert.equal(applyEditorCursorStyle("\x1b[7mx\x1b[0m", "terminal"), "x");
+  assert.equal(applyEditorCursorStyle("plain", "terminal"), "plain");
+});
+
+test("editor cursor style and click-to-position configs", () => {
   const defaults = parsePowerlineConfig({}, PRESET_NAMES);
-  assert.equal(defaults.editorCursorBlink, true);
+  assert.equal(defaults.editorCursor, "block");
   assert.equal(defaults.editorClickCursor, true);
-  const off = parsePowerlineConfig({ editorCursorBlink: false, editorClickCursor: false }, PRESET_NAMES);
-  assert.equal(off.editorCursorBlink, false);
-  assert.equal(off.editorClickCursor, false);
+  const custom = parsePowerlineConfig({ editorCursor: "terminal", editorClickCursor: false }, PRESET_NAMES);
+  assert.equal(custom.editorCursor, "terminal");
+  assert.equal(custom.editorClickCursor, false);
+  // unknown value falls back to the block default
+  assert.equal(parsePowerlineConfig({ editorCursor: "beam" }, PRESET_NAMES).editorCursor, "block");
 });
 
 test("cache icon differs from context icon", () => {

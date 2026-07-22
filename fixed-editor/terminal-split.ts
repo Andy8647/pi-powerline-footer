@@ -956,15 +956,9 @@ export class TerminalSplitCompositor {
     if (!location) return;
 
     if (isLeftPress(packet)) {
-      // Click inside the editor text area: let the host position the text
-      // cursor instead of starting a selection.
-      if (location.area === "cluster") {
-        const editorPoint = this.editorTextLocationForClusterPoint(location.point.line, location.point.col);
-        if (editorPoint && this.onEditorTextClick?.(editorPoint.visualRow, editorPoint.visualCol)) {
-          this.lastLeftPress = null;
-          return;
-        }
-      }
+      // Always begin a selection on press so dragging inside the editor still
+      // selects text. A press with no drag is resolved as a click that
+      // positions the cursor when the button is released (finishSelection).
       this.startSelection(location);
       return;
     }
@@ -1080,7 +1074,16 @@ export class TerminalSplitCompositor {
         this.onCopySelection?.(selectedText, "auto");
       }
     } else {
+      // No drag happened, so this was a plain click. Inside the editor text
+      // that means "move the cursor here"; the host ignores it when the
+      // editorClickCursor option is off.
+      const clickArea = this.selectionArea;
+      const clickPoint = this.selectionAnchor;
       this.clearSelection();
+      if (clickArea === "cluster" && clickPoint) {
+        const editorPoint = this.editorTextLocationForClusterPoint(clickPoint.line, clickPoint.col);
+        if (editorPoint) this.onEditorTextClick?.(editorPoint.visualRow, editorPoint.visualCol);
+      }
     }
     this.requestRender();
   }

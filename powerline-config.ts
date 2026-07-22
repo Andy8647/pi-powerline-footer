@@ -1,7 +1,7 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { sanitizeColorOverrides } from "./theme.ts";
 import { BUILTIN_STATUS_LINE_SEGMENT_IDS } from "./types.ts";
-import type { ColorScheme, ColorValue, CustomItemPosition, CustomStatusItem, PillTextColor, PowerlineCaps, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions, StatusLineSeparatorStyle } from "./types.ts";
+import type { ColorScheme, ColorValue, CustomItemPosition, CustomStatusItem, EditorCursorStyle, PillTextColor, PowerlineCaps, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions, StatusLineSeparatorStyle } from "./types.ts";
 
 export interface PowerlineConfig {
   preset: StatusLinePreset;
@@ -19,7 +19,7 @@ export interface PowerlineConfig {
   promptColor: `#${string}`;
   highlightBashCall: boolean;
   scrollNavCard: boolean;
-  editorCursorBlink: boolean;
+  editorCursor: EditorCursorStyle;
   editorClickCursor: boolean;
   colors: ColorScheme;
   mouseScroll: boolean;
@@ -60,6 +60,14 @@ function normalizeSeparator(value: unknown): StatusLineSeparatorStyle | null {
   const normalized = value.trim().toLowerCase();
   return (SEPARATOR_STYLES as readonly string[]).includes(normalized)
     ? (normalized as StatusLineSeparatorStyle)
+    : null;
+}
+
+function normalizeEditorCursor(value: unknown): EditorCursorStyle | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "block" || normalized === "underline" || normalized === "terminal"
+    ? normalized
     : null;
 }
 
@@ -336,7 +344,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     promptColor: "#cba6f7",
     highlightBashCall: true,
     scrollNavCard: false,
-    editorCursorBlink: true,
+    editorCursor: "block",
     editorClickCursor: true,
     colors: {},
     mouseScroll: true,
@@ -374,7 +382,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     promptColor: normalizeHexColor(value.promptColor, "#cba6f7"),
     highlightBashCall: value.highlightBashCall !== false,
     scrollNavCard: value.scrollNavCard === true,
-    editorCursorBlink: value.editorCursorBlink !== false,
+    editorCursor: normalizeEditorCursor(value.editorCursor) ?? defaultConfig.editorCursor,
     editorClickCursor: value.editorClickCursor !== false,
     colors: sanitizeColorOverrides(value.colors),
     mouseScroll: value.mouseScroll !== false,

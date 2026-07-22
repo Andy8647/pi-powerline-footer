@@ -9,7 +9,7 @@ import { isKeyRelease, type AutocompleteProvider, type SelectItem, SelectList, t
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 
-import type { ColorScheme, PowerlineCaps, SegmentContext, StatusLinePreset, StatusLineSegmentId, StatusLineSeparatorStyle } from "./types.ts";
+import type { ColorScheme, EditorCursorStyle, PowerlineCaps, SegmentContext, StatusLinePreset, StatusLineSegmentId, StatusLineSeparatorStyle } from "./types.ts";
 import type { PowerlineConfig } from "./powerline-config.ts";
 import { BashTranscriptStore } from "./bash-mode/transcript.ts";
 import {
@@ -86,7 +86,7 @@ let config: PowerlineConfig = {
   promptColor: "#cba6f7",
   highlightBashCall: true,
   scrollNavCard: false,
-  editorCursorBlink: true,
+  editorCursor: "block",
   editorClickCursor: true,
   colors: {},
   mouseScroll: true,
@@ -993,12 +993,16 @@ export function displayColumnToStringIndex(line: string, fromIndex: number, targ
 }
 
 /**
- * Make the editor's software cursor blink: the pi-tui editor draws the
- * cursor as reverse video (\x1b[7m); add SGR blink on top. Terminals
- * without blink support degrade to the original reverse block.
+ * Restyle the editor's software cursor, which pi-tui draws as reverse video.
+ * "block" keeps it as-is, "underline" trades the reverse block for an
+ * underline, and "terminal" removes it entirely so the real terminal cursor
+ * (parked on the same cell) is what the user sees — its shape and blinking
+ * then follow the terminal's own configuration.
  */
-export function applyEditorCursorBlink(line: string): string {
-  return line.replace(/\x1b\[7m([\s\S]{1,2}?)\x1b\[0m/g, "\x1b[5;7m$1\x1b[0m");
+export function applyEditorCursorStyle(line: string, style: EditorCursorStyle): string {
+  if (style === "block") return line;
+  const replacement = style === "underline" ? "\x1b[4m$1\x1b[0m" : "$1";
+  return line.replace(/\x1b\[7m([\s\S]{1,2}?)\x1b\[0m/g, replacement);
 }
 
 /**
@@ -2998,10 +3002,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           result.push(lines[i] || "");
         }
 
-        // Make the software cursor blink (reverse block → blinking reverse block)
-        if (config.editorCursorBlink) {
+        // Restyle the software cursor (underline, or hide it for terminal mode)
+        if (config.editorCursor !== "block") {
           for (let i = 0; i < result.length; i++) {
-            result[i] = applyEditorCursorBlink(result[i] ?? "");
+            result[i] = applyEditorCursorStyle(result[i] ?? "", config.editorCursor);
           }
         }
 
@@ -3016,6 +3020,9 @@ export default function powerlineFooter(pi: ExtensionAPI) {
     ctx.ui.setFooter((tui: any, _theme: Theme, footerData: ReadonlyFooterDataProvider) => {
       footerDataRef = footerData;
       tuiRef = tui;
+      // "terminal" cursor mode drops the software cursor, so the real terminal
+      // cursor has to be visible for anything to mark the caret position.
+      if (config.editorCursor === "terminal") tui?.setShowHardwareCursor?.(true);
       installFooterStatusRepaintHook(footerData);
       const unsub = footerData.onBranchChange(() => requestStatusRender());
 
