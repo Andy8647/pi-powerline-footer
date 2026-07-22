@@ -1,6 +1,6 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { BUILTIN_STATUS_LINE_SEGMENT_IDS } from "./types.ts";
-import type { ColorValue, CustomItemPosition, CustomStatusItem, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions } from "./types.ts";
+import type { ColorValue, CustomItemPosition, CustomStatusItem, EditorBoxStyle, PowerlinePlacement, PresetDef, StatusLineLayout, StatusLinePreset, StatusLineSegmentId, StatusLineSegmentOptions } from "./types.ts";
 
 export interface PowerlineConfig {
   preset: StatusLinePreset;
@@ -16,6 +16,8 @@ export interface PowerlineConfig {
   invalidPlacement: string | null;
   welcome: boolean;
   stashSharpSShortcut: boolean;
+  editorBox: EditorBoxStyle;
+  promptColor: `#${string}` | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -26,6 +28,12 @@ function normalizePreset(value: unknown, presets: readonly StatusLinePreset[]): 
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
   return (presets as readonly string[]).includes(normalized) ? (normalized as StatusLinePreset) : null;
+}
+
+function normalizePromptColor(value: unknown): `#${string}` | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(normalized) ? (normalized as `#${string}`) : null;
 }
 
 function normalizePlacement(value: unknown): { placement: PowerlinePlacement; invalidPlacement: string | null } {
@@ -265,6 +273,8 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     invalidPlacement: null,
     welcome: true,
     stashSharpSShortcut: false,
+    editorBox: "flat",
+    promptColor: null,
   };
 
   const directPreset = normalizePreset(value, presets);
@@ -291,6 +301,8 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     invalidPlacement,
     welcome: value.welcome !== false,
     stashSharpSShortcut: value.stashSharpSShortcut === true,
+    editorBox: value.editorBox === "rounded" ? "rounded" : "flat",
+    promptColor: normalizePromptColor(value.promptColor),
   };
 }
 

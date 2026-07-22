@@ -70,6 +70,13 @@ export type StatusLineSeparatorStyle =
 // Preset names
 export type PowerlinePlacement = "above" | "below";
 
+/**
+ * Editor input box border style.
+ * - "flat": top/bottom rules only, `>` prompt (the default, unchanged)
+ * - "rounded": full rounded box (`╭─╮`/`╰─╯`) with side borders and a `❯` prompt
+ */
+export type EditorBoxStyle = "flat" | "rounded";
+
 export type StatusLinePreset =
   | "default"
   | "minimal"

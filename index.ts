@@ -29,7 +29,7 @@ import { collectHiddenExtensionStatusKeys, getNotificationExtensionStatuses, mer
 import { getSeparator } from "./separators.ts";
 import { renderSegment } from "./segments.ts";
 import { getGitStatus, invalidateGitStatus, invalidateGitBranch } from "./git-status.ts";
-import { ansi, getFgAnsiCode } from "./colors.ts";
+import { ansi, getFgAnsiCode, hexToFgAnsi } from "./colors.ts";
 import { WelcomeComponent, WelcomeHeader, discoverLoadedCounts, getRecentSessions } from "./welcome.ts";
 import { createWelcomeDismissScheduler } from "./welcome-dismiss.ts";
 import { createRenderScheduler } from "./render-scheduler.ts";
@@ -82,6 +82,8 @@ let config: PowerlineConfig = {
   invalidPlacement: null,
   welcome: true,
   stashSharpSShortcut: false,
+  editorBox: "flat",
+  promptColor: null,
 };
 
 const CUSTOM_COMPACTION_STATUS_KEY = "compact-policy";
@@ -933,6 +935,89 @@ export function parseBashModeSettings(settings: Record<string, unknown>, powerli
     transcriptMaxLines,
     transcriptMaxBytes,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Editor Box
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface EditorBoxOptions {
+  style: EditorBoxStyle;
+  promptColor: `#${string}` | null;
+  bashMode: boolean;
+}
+
+/** Columns available to the inner editor render for a given box style. */
+function editorBoxContentWidth(width: number, style: EditorBoxStyle): number {
+  // Rounded reserves columns for the two side borders and their padding.
+  return Math.max(1, width - (style === "rounded" ? 9 : 3));
+}
+
+/**
+ * Wrap the editor's own render (`originalRender`) in the configured input box.
+ * "flat" reproduces the default top/bottom rules with a gray `>` prompt;
+ * "rounded" draws a full box with side borders and a `❯` prompt. `promptColor`
+ * overrides the prompt glyph color in both modes (null = the default gray).
+ */
+export function renderEditorBox(
+  originalRender: (width: number) => string[],
+  width: number,
+  opts: EditorBoxOptions,
+): string[] {
+  if (width < 10) return originalRender(width);
+
+  const rounded = opts.style === "rounded";
+  const bc = (s: string) => `${getFgAnsiCode("sep")}${s}${ansi.reset}`;
+  const promptGlyph = opts.bashMode ? "$" : rounded ? "❯" : ">";
+  const promptAnsi = opts.promptColor ? hexToFgAnsi(opts.promptColor) : ansi.getFgAnsi(200, 200, 200);
+  const prompt = `${promptAnsi}${promptGlyph}${ansi.reset}`;
+  const promptPrefix = ` ${prompt} `;
+  const contPrefix = "   ";
+  const contentWidth = editorBoxContentWidth(width, opts.style);
+  const lines = originalRender(contentWidth);
+
+  if (lines.length === 0) return lines;
+
+  let bottomBorderIndex = lines.length - 1;
+  for (let i = lines.length - 1; i >= 1; i--) {
+    const stripped = lines[i]?.replace(/\x1b\[[0-9;]*m/g, "") || "";
+    if (stripped.length > 0 && /^─{3,}/.test(stripped)) {
+      bottomBorderIndex = i;
+      break;
+    }
+  }
+
+  const result: string[] = [];
+
+  if (rounded) {
+    const barW = Math.max(1, width - 4);
+    result.push(` ${bc("╭")}${bc("─".repeat(barW))}${bc("╮")}`);
+    for (let i = 1; i < bottomBorderIndex; i++) {
+      const prefix = i === 1 ? promptPrefix : contPrefix;
+      result.push(` ${bc("│")} ${prefix}${lines[i] || ""} ${bc("│")}`);
+    }
+    if (bottomBorderIndex === 1) {
+      const pad = Math.max(0, width - 9);
+      result.push(` ${bc("│")} ${prompt} ${" ".repeat(pad)}${bc("│")}`);
+    }
+    result.push(` ${bc("╰")}${bc("─".repeat(barW))}${bc("╯")}`);
+  } else {
+    result.push(" " + bc("─".repeat(width - 2)));
+    for (let i = 1; i < bottomBorderIndex; i++) {
+      const prefix = i === 1 ? promptPrefix : contPrefix;
+      result.push(`${prefix}${lines[i] || ""}`);
+    }
+    if (bottomBorderIndex === 1) {
+      result.push(`${promptPrefix}${" ".repeat(contentWidth)}`);
+    }
+    result.push(" " + bc("─".repeat(width - 2)));
+  }
+
+  for (let i = bottomBorderIndex + 1; i < lines.length; i++) {
+    result.push(lines[i] || "");
+  }
+
+  return result;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2799,48 +2884,11 @@ export default function powerlineFooter(pi: ExtensionAPI) {
 
       const originalRender = editor.render.bind(editor);
       editor.render = (width: number): string[] => {
-        if (width < 10) {
-          return originalRender(width);
-        }
-
-        const bc = (s: string) => `${getFgAnsiCode("sep")}${s}${ansi.reset}`;
-        const promptGlyph = bashModeActive ? "$" : ">";
-        const prompt = `${ansi.getFgAnsi(200, 200, 200)}${promptGlyph}${ansi.reset}`;
-        const promptPrefix = ` ${prompt} `;
-        const contPrefix = "   ";
-        const contentWidth = Math.max(1, width - 3);
-        const lines = originalRender(contentWidth);
-
-        if (lines.length === 0) return lines;
-
-        let bottomBorderIndex = lines.length - 1;
-        for (let i = lines.length - 1; i >= 1; i--) {
-          const stripped = lines[i]?.replace(/\x1b\[[0-9;]*m/g, "") || "";
-          if (stripped.length > 0 && /^─{3,}/.test(stripped)) {
-            bottomBorderIndex = i;
-            break;
-          }
-        }
-
-        const result: string[] = [];
-        result.push(" " + bc("─".repeat(width - 2)));
-
-        for (let i = 1; i < bottomBorderIndex; i++) {
-          const prefix = i === 1 ? promptPrefix : contPrefix;
-          result.push(`${prefix}${lines[i] || ""}`);
-        }
-
-        if (bottomBorderIndex === 1) {
-          result.push(`${promptPrefix}${" ".repeat(contentWidth)}`);
-        }
-
-        result.push(" " + bc("─".repeat(width - 2)));
-
-        for (let i = bottomBorderIndex + 1; i < lines.length; i++) {
-          result.push(lines[i] || "");
-        }
-
-        return result;
+        return renderEditorBox(originalRender, width, {
+          style: config.editorBox,
+          promptColor: config.promptColor,
+          bashMode: bashModeActive,
+        });
       };
 
       return editor;
