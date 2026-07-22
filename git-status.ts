@@ -15,9 +15,12 @@ interface CachedBranch {
 
 export type GitPollingMode = "full" | "branch" | "off";
 
+/** Known git hosting providers we render a dedicated icon for. */
+export type GitHost = "github" | "gitlab" | "bitbucket" | "other";
+
 const CACHE_TTL_MS = 1000; // 1 second for file status
 const BRANCH_TTL_MS = 500; // Shorter TTL so branch updates quickly after invalidation
-const REMOTE_TTL_MS = 60_000; // Remote URL almost never changes
+const REMOTE_TTL_MS = 60_000; // Origin remote almost never changes within a session
 let cachedStatus: CachedGitStatus | null = null;
 let cachedBranch: CachedBranch | null = null;
 let cachedRemote: { url: string | null; timestamp: number } | null = null;
@@ -111,6 +114,44 @@ async function fetchGitBranch(): Promise<string | null> {
 
   const sha = await runGit(["rev-parse", "--short", "HEAD"]);
   return sha ? `${sha} (detached)` : "detached";
+}
+
+/**
+ * Classify an origin remote URL into a known hosting provider. Handles both
+ * SSH (`git@host:owner/repo`, `ssh://git@host/…`) and HTTP(S) forms, and
+ * treats sub-domains (e.g. `www.github.com`) and any non-empty remote we
+ * don't recognize as a generic git host.
+ */
+export function detectGitHost(remoteUrl: string | null): GitHost | null {
+  if (!remoteUrl) return null;
+  const trimmed = remoteUrl.trim();
+  if (!trimmed) return null;
+
+  let host: string;
+  const scpLike = /^[^/@]+@([^:/]+):/.exec(trimmed);
+  if (scpLike) {
+    host = scpLike[1]!;
+  } else {
+    try {
+      host = new URL(trimmed).hostname;
+    } catch {
+      return "other";
+    }
+  }
+
+  host = host.toLowerCase().replace(/^www\./, "");
+  if (host === "github.com" || host.endsWith(".github.com")) return "github";
+  if (host === "gitlab.com" || host.endsWith(".gitlab.com")) return "gitlab";
+  if (host === "bitbucket.org" || host.endsWith(".bitbucket.org")) return "bitbucket";
+  return "other";
+}
+
+/**
+ * Get the origin remote's hosting provider, derived from the cached remote URL
+ * (see getGitRemoteUrl). Returns null before the first fetch completes.
+ */
+export function getGitRemoteHost(): GitHost | null {
+  return detectGitHost(getGitRemoteUrl());
 }
 
 /**
@@ -249,4 +290,7 @@ export function invalidateGitStatus(): void {
 export function invalidateGitBranch(): void {
   if (cachedBranch) cachedBranch.timestamp = 0; // expire, but keep serving the stale value
   branchInvalidationCounter++;
+  // The origin remote is repo-scoped, so a branch/cwd change may mean a
+  // different repo; expire the remote cache so it re-detects.
+  if (cachedRemote) cachedRemote.timestamp = 0;
 }

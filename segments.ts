@@ -3,9 +3,11 @@ import { basename } from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { BuiltinStatusLineSegmentId, RenderedSegment, SegmentContext, SemanticColor, StatusLineSegment, StatusLineSegmentId } from "./types.ts";
 import { normalizeCompactExtensionStatus, normalizeExtensionStatusValue } from "./powerline-config.ts";
-import { getGitRemoteUrl, isGitHubRemoteUrl } from "./git-status.ts";
+import { getGitRemoteHost } from "./git-status.ts";
+import type { GitHost } from "./git-status.ts";
 import { fg, bg, rainbow, applyColor, applyBgColor } from "./theme.ts";
 import { getIcons, SEP_DOT, getThinkingText } from "./icons.ts";
+import type { IconSet } from "./icons.ts";
 
 function color(ctx: SegmentContext, semantic: SemanticColor, text: string): string {
   if (ctx.segmentStyle === "pill") {
@@ -131,7 +133,22 @@ const pathSegment: StatusLineSegment = {
   },
 };
 
-const GITHUB_ICON = "\uF09B"; // nf-fa-github (octocat)
+/**
+ * Icon for the branch label: the origin remote's host logo when hostIcon is
+ * enabled and a remote is known, otherwise the plain branch icon. An
+ * unrecognized remote falls back to the generic git logo.
+ */
+function resolveBranchIcon(icons: IconSet, hostIcon: boolean): string {
+  if (!hostIcon) return icons.branch;
+  const host = getGitRemoteHost();
+  const byHost: Record<GitHost, string> = {
+    github: icons.github,
+    gitlab: icons.gitlab,
+    bitbucket: icons.bitbucket,
+    other: icons.git,
+  };
+  return host ? byHost[host] : icons.branch;
+}
 
 const gitSegment: StatusLineSegment = {
   id: "git",
@@ -150,8 +167,9 @@ const gitSegment: StatusLineSegment = {
     const branchColor: SemanticColor = isDirty ? "gitDirty" : "gitClean";
     const isPill = ctx.segmentStyle === "pill";
 
-    // Host-specific icon: GitHub octocat when the origin remote is github.com
-    const branchIcon = isGitHubRemoteUrl(getGitRemoteUrl()) ? GITHUB_ICON : icons.branch;
+    // Host-specific branch icon (GitHub/GitLab/Bitbucket/generic git). On the
+    // combined line this defaults on (opt-out) to preserve the octocat.
+    const branchIcon = resolveBranchIcon(icons, opts.hostIcon !== false);
 
     // Build text content (without pill wrap first)
     let text = "";
