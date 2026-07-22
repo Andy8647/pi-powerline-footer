@@ -1285,6 +1285,24 @@ test("terminal split keeps editor drag-selection working alongside click-to-posi
   compositor.dispose();
 });
 
+test("terminal split dismisses the drag highlight when the editor is typed into", () => {
+  const { inputListener, compositor, copied } = editorBoxClickHarness();
+
+  // Drag-select some text, then release.
+  assert.deepEqual(inputListener()("\x1b[<0;5;11M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<32;10;11M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<0;10;11m"), { consume: true });
+
+  // A backspace goes to the editor (not consumed) and clears the selection.
+  assert.equal(inputListener()("\x7f"), undefined);
+
+  // With the selection gone, ctrl+c no longer copies anything.
+  assert.equal(inputListener()("\x03"), undefined);
+  assert.equal(copied.length, 1);
+
+  compositor.dispose();
+});
+
 test("terminal split selects visible chat text and copies it on drag release", () => {
   const terminal = new FakeTerminal();
   let inputListener: ((data: string) => { consume?: boolean; data?: string } | undefined) | null = null;
