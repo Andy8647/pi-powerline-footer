@@ -1259,6 +1259,69 @@ function editorBoxClickHarness() {
   return { inputListener: () => inputListener!, compositor, copied, clicks };
 }
 
+function editorBoxSelectionHarness() {
+  const terminal = new FakeTerminal();
+  let inputListener: ((data: string) => { consume?: boolean; data?: string } | undefined) | null = null;
+  const copied: string[] = [];
+  const tui = {
+    terminal,
+    addInputListener(listener: (data: string) => { consume?: boolean; data?: string } | undefined) {
+      inputListener = listener;
+      return () => {
+        inputListener = null;
+      };
+    },
+    requestRender() {},
+    render() {
+      return Array.from({ length: 20 }, (_, index) => `line-${index}`);
+    },
+  };
+
+  const compositor = new TerminalSplitCompositor({
+    tui,
+    terminal,
+    onCopySelection: (text) => copied.push(text),
+    // Realistic rounded box: " │ " + " ❯ " prompt prefix + content + " │".
+    renderCluster: () => ({
+      lines: [" ╭─────────────────╮", " │  ❯ hello world │", " ╰─────────────────╯"],
+      cursor: null,
+    }),
+  });
+
+  compositor.install();
+  tui.render(40);
+  // 3 cluster lines over 12 rows: top border row 10, content row 11, bottom 12.
+  return { inputListener: () => inputListener!, compositor, copied };
+}
+
+test("terminal split excludes the box borders when selecting editor text", () => {
+  const { inputListener, compositor, copied } = editorBoxSelectionHarness();
+
+  // Drag the full width of the content row, starting on the left border and
+  // ending past the right border.
+  assert.deepEqual(inputListener()("\x1b[<0;1;11M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<32;25;11M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<0;25;11m"), { consume: true });
+
+  assert.deepEqual(copied, ["hello world"]);
+  assert.ok(!copied[0]?.includes("│"));
+
+  compositor.dispose();
+});
+
+test("terminal split copies nothing when selecting a pure box border row", () => {
+  const { inputListener, compositor, copied } = editorBoxSelectionHarness();
+
+  // Drag across the top border row (packet row 10).
+  assert.deepEqual(inputListener()("\x1b[<0;1;10M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<32;18;10M"), { consume: true });
+  assert.deepEqual(inputListener()("\x1b[<0;18;10m"), { consume: true });
+
+  assert.deepEqual(copied, []);
+
+  compositor.dispose();
+});
+
 test("terminal split positions the editor cursor on a plain click at release", () => {
   const { inputListener, compositor, copied, clicks } = editorBoxClickHarness();
 
