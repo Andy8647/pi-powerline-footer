@@ -721,6 +721,112 @@ test("bash editor inserts Finder file drops as path strings", async () => {
   }
 });
 
+async function makePasteEditor() {
+  const { BashModeEditor } = await import("../bash-mode/editor.ts");
+  const { KeybindingsManager } = await import(new URL("../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js", import.meta.url).href);
+  const keybindings = KeybindingsManager.create();
+  const editor = new BashModeEditor(
+    { requestRender() {}, terminal: { columns: 80, rows: 24 } },
+    { borderColor: (s: string) => s },
+    keybindings,
+    {
+      keybindings,
+      isBashModeActive: () => false,
+      isShellRunning: () => false,
+      onExitBashMode() {},
+      onSubmitCommand() {},
+      onInterrupt() {},
+      onNotify() {},
+      getHistoryEntries: () => [],
+      resolveGhostSuggestion: async () => null,
+    },
+  );
+  return editor;
+}
+
+function bracketedPaste(text: string): string {
+  return `\x1b[200~${text}\x1b[201~`;
+}
+
+const HINT = "paste again to expand";
+const BIG_PASTE_A = Array.from({ length: 12 }, (_, i) => `alpha line ${i}`).join("\n");
+const BIG_PASTE_B = Array.from({ length: 12 }, (_, i) => `bravo line ${i}`).join("\n");
+
+test("bash editor collapses a large paste and arms the paste-again hint", async () => {
+  const links = ensureEditorModuleLinks();
+  try {
+    const editor = await makePasteEditor();
+    editor.handleInput(bracketedPaste(BIG_PASTE_A));
+
+    assert.match(editor.getText(), /\[paste #1 \+12 lines\]/);
+    assert.equal(editor.getExpandedText(), BIG_PASTE_A);
+    assert.ok(editor.render(80).join("\n").includes(HINT));
+  } finally {
+    links.cleanup();
+  }
+});
+
+test("bash editor expands the placeholder in place when the same text is re-pasted", async () => {
+  const links = ensureEditorModuleLinks();
+  try {
+    const editor = await makePasteEditor();
+    editor.handleInput(bracketedPaste(BIG_PASTE_A));
+    editor.handleInput(bracketedPaste(BIG_PASTE_A));
+
+    // The marker is gone: the buffer now holds the literal pasted text, once.
+    assert.equal(editor.getText(), BIG_PASTE_A);
+    assert.equal(editor.getExpandedText(), BIG_PASTE_A);
+    assert.ok(!editor.render(80).join("\n").includes(HINT));
+  } finally {
+    links.cleanup();
+  }
+});
+
+test("bash editor stacks a second placeholder when a different text is pasted", async () => {
+  const links = ensureEditorModuleLinks();
+  try {
+    const editor = await makePasteEditor();
+    editor.handleInput(bracketedPaste(BIG_PASTE_A));
+    editor.handleInput(bracketedPaste(BIG_PASTE_B));
+
+    const text = editor.getText();
+    assert.match(text, /\[paste #1 \+12 lines\]/);
+    assert.match(text, /\[paste #2 \+12 lines\]/);
+    assert.equal(editor.getExpandedText(), BIG_PASTE_A + BIG_PASTE_B);
+    // Hint stays armed, now targeting the most recent placeholder.
+    assert.ok(editor.render(80).join("\n").includes(HINT));
+  } finally {
+    links.cleanup();
+  }
+});
+
+test("bash editor dismisses the paste-again hint on any non-paste input", async () => {
+  const links = ensureEditorModuleLinks();
+  try {
+    const editor = await makePasteEditor();
+    editor.handleInput(bracketedPaste(BIG_PASTE_A));
+    assert.ok(editor.render(80).join("\n").includes(HINT));
+
+    editor.handleInput("x");
+    assert.ok(!editor.render(80).join("\n").includes(HINT));
+  } finally {
+    links.cleanup();
+  }
+});
+
+test("bash editor does not arm the hint for a small inline paste", async () => {
+  const links = ensureEditorModuleLinks();
+  try {
+    const editor = await makePasteEditor();
+    editor.handleInput(bracketedPaste("just two\nshort lines"));
+
+    assert.equal(editor.getText(), "just two\nshort lines");
+    assert.ok(!editor.render(80).join("\n").includes(HINT));
+  } finally {
+    links.cleanup();
+  }
+});
+
 test("one-off bash autocomplete provider stays inactive even inside bang commands", async () => {
   const provider = new OneOffBashAutocompleteProvider();
   const suggestions = await provider.getSuggestions(
