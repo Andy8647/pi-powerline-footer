@@ -760,7 +760,7 @@ test("bash editor collapses a large paste and arms the paste-again hint", async 
 
     assert.match(editor.getText(), /\[paste #1 \+12 lines\]/);
     assert.equal(editor.getExpandedText(), BIG_PASTE_A);
-    assert.ok(editor.render(80).join("\n").includes(HINT));
+    assert.equal(editor.getPasteExpandHintText(), HINT);
   } finally {
     links.cleanup();
   }
@@ -776,7 +776,7 @@ test("bash editor expands the placeholder in place when the same text is re-past
     // The marker is gone: the buffer now holds the literal pasted text, once.
     assert.equal(editor.getText(), BIG_PASTE_A);
     assert.equal(editor.getExpandedText(), BIG_PASTE_A);
-    assert.ok(!editor.render(80).join("\n").includes(HINT));
+    assert.equal(editor.getPasteExpandHintText(), null);
   } finally {
     links.cleanup();
   }
@@ -794,7 +794,7 @@ test("bash editor stacks a second placeholder when a different text is pasted", 
     assert.match(text, /\[paste #2 \+12 lines\]/);
     assert.equal(editor.getExpandedText(), BIG_PASTE_A + BIG_PASTE_B);
     // Hint stays armed, now targeting the most recent placeholder.
-    assert.ok(editor.render(80).join("\n").includes(HINT));
+    assert.equal(editor.getPasteExpandHintText(), HINT);
   } finally {
     links.cleanup();
   }
@@ -805,10 +805,10 @@ test("bash editor dismisses the paste-again hint on any non-paste input", async 
   try {
     const editor = await makePasteEditor();
     editor.handleInput(bracketedPaste(BIG_PASTE_A));
-    assert.ok(editor.render(80).join("\n").includes(HINT));
+    assert.equal(editor.getPasteExpandHintText(), HINT);
 
     editor.handleInput("x");
-    assert.ok(!editor.render(80).join("\n").includes(HINT));
+    assert.equal(editor.getPasteExpandHintText(), null);
   } finally {
     links.cleanup();
   }
@@ -821,7 +821,7 @@ test("bash editor does not arm the hint for a small inline paste", async () => {
     editor.handleInput(bracketedPaste("just two\nshort lines"));
 
     assert.equal(editor.getText(), "just two\nshort lines");
-    assert.ok(!editor.render(80).join("\n").includes(HINT));
+    assert.equal(editor.getPasteExpandHintText(), null);
   } finally {
     links.cleanup();
   }

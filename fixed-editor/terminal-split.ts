@@ -44,6 +44,11 @@ interface TerminalSplitCompositorOptions {
   onCopySelection?: (text: string, source: "auto" | "explicit") => void;
   /** When false, mouse release does not auto-copy; explicit copy (right-click, ctrl+c) still works. Default true. */
   autoCopyOnSelect?: boolean;
+  /**
+   * Extra hint text (e.g. "paste again to expand") to show on the editor box's
+   * bottom border, alongside the selection hint. Returns null when nothing to show.
+   */
+  getEditorHintText?: () => string | null;
   scrollRepaintThrottleMs?: number;
 }
 
@@ -557,6 +562,7 @@ export class TerminalSplitCompositor {
   private readonly onEditorTextClick: ((visualRow: number, visualCol: number) => boolean) | null;
   private readonly onCopySelection: ((text: string, source: "auto" | "explicit") => void) | null;
   private readonly autoCopyOnSelect: boolean;
+  private readonly getEditorHintText: (() => string | null) | null;
   private readonly scrollRepaintThrottleMs: number;
   private extendedKeyboardMode: ExtendedKeyboardMode | null = null;
   private readonly rowsDescriptor: PropertyDescriptor | undefined;
@@ -607,6 +613,7 @@ export class TerminalSplitCompositor {
     this.onEditorTextClick = options.onEditorTextClick ?? null;
     this.onCopySelection = options.onCopySelection ?? null;
     this.autoCopyOnSelect = options.autoCopyOnSelect !== false;
+    this.getEditorHintText = options.getEditorHintText ?? null;
     this.scrollRepaintThrottleMs = Math.max(0, options.scrollRepaintThrottleMs ?? 0);
     this.rowsDescriptor = descriptorForRows(options.terminal);
     this.originalWrite = options.terminal.write.bind(options.terminal);
@@ -1618,13 +1625,24 @@ export class TerminalSplitCompositor {
   }
 
   private overlaySelectionHint(lines: string[], width: number): string[] {
-    if (this.autoCopyOnSelect || lines.length === 0 || width < 1) return lines;
+    if (lines.length === 0 || width < 1) return lines;
 
-    const selectedText = this.getSelectedText();
-    if (!selectedText) return lines;
+    const parts: string[] = [];
 
-    const characterCount = Array.from(selectedText).length;
-    const hint = `\x1b[2m${characterCount} character${characterCount === 1 ? "" : "s"} selected, ctrl+c to copy\x1b[22m `;
+    // Editor-supplied hint (e.g. "paste again to expand") leads the line.
+    const editorHint = this.getEditorHintText?.() ?? null;
+    if (editorHint) parts.push(editorHint);
+
+    // Selection hint only when auto-copy is off (otherwise there is nothing to prompt).
+    const selectedText = this.autoCopyOnSelect ? "" : this.getSelectedText();
+    if (selectedText) {
+      const characterCount = Array.from(selectedText).length;
+      parts.push(`${characterCount} character${characterCount === 1 ? "" : "s"} selected, ctrl+c to copy`);
+    }
+
+    if (parts.length === 0) return lines;
+
+    const hint = `\x1b[2m${parts.join(" ⋅ ")}\x1b[22m `;
     const hintWidth = visibleWidth(hint);
     if (hintWidth >= width) return lines;
 

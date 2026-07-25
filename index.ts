@@ -2688,6 +2688,10 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       onEditorTextClick: (visualRow, visualCol) => positionEditorCursorAt(visualRow, visualCol),
       onCopySelection: (text) => copyTextToClipboard(ctx, text),
       autoCopyOnSelect: config.copyOnSelect !== false,
+      getEditorHintText: () => {
+        const editor: any = currentEditor;
+        return typeof editor?.getPasteExpandHintText === "function" ? editor.getPasteExpandHintText() : null;
+      },
       getShowHardwareCursor: () => typeof tui.getShowHardwareCursor === "function" && tui.getShowHardwareCursor(),
       renderCluster: (width, terminalRows) => {
         const theme = readRenderTheme();

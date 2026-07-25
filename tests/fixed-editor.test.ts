@@ -196,6 +196,46 @@ test("terminal split can render a hidden status container in the fixed cluster",
   assert.deepEqual(status.render(), ["", "⠙ Shaolin Switchblade Sync..."]);
 });
 
+test("editor box bottom hint combines the paste hint and the selection hint", () => {
+  const terminal = new FakeTerminal();
+  const tui = { terminal, doRender() {} };
+
+  let pasteHint: string | null = null;
+  const compositor = new TerminalSplitCompositor({
+    tui,
+    terminal,
+    getShowHardwareCursor: () => false,
+    autoCopyOnSelect: false,
+    getEditorHintText: () => pasteHint,
+    renderCluster: (width) => ({ lines: [" ".repeat(width)], cursor: null }),
+  });
+
+  const overlay = (width: number): string[] =>
+    (compositor as any).overlaySelectionHint([" ".repeat(width)], width);
+  const bottom = (out: string[]): string => (out.at(-1) ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+
+  // Nothing armed and nothing selected → the border line is left untouched.
+  (compositor as any).getSelectedText = () => "";
+  assert.equal(bottom(overlay(60)).trim(), "");
+
+  // Selection only.
+  (compositor as any).getSelectedText = () => "abc";
+  assert.match(bottom(overlay(60)), /3 characters selected, ctrl\+c to copy/);
+  assert.doesNotMatch(bottom(overlay(60)), /paste again/);
+
+  // Paste hint only.
+  pasteHint = "paste again to expand";
+  (compositor as any).getSelectedText = () => "";
+  assert.match(bottom(overlay(60)), /paste again to expand/);
+  assert.doesNotMatch(bottom(overlay(60)), /characters selected/);
+
+  // Both → paste hint first, joined by the middot separator.
+  (compositor as any).getSelectedText = () => "abcd";
+  assert.match(bottom(overlay(80)), /paste again to expand ⋅ 4 characters selected, ctrl\+c to copy/);
+
+  compositor.dispose();
+});
+
 test("terminal split escape helpers generate DEC scroll region controls", () => {
   assert.equal(beginSynchronizedOutput(), "\x1b[?2026h");
   assert.equal(endSynchronizedOutput(), "\x1b[?2026l");

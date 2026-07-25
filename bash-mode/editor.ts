@@ -337,8 +337,7 @@ export class BashModeEditor extends CustomEditor {
   }
 
   render(width: number): string[] {
-    const lines = this.renderWithGhostSuggestion(width);
-    return this.appendPasteExpandHint(lines, width);
+    return this.renderWithGhostSuggestion(width);
   }
 
   private renderWithGhostSuggestion(width: number): string[] {
@@ -488,23 +487,24 @@ export class BashModeEditor extends CustomEditor {
   }
 
   /**
-   * Append the dim "paste again to expand" hint below the editor box while a
-   * collapsed paste is armed. Self-clears if the placeholder was deleted.
+   * The "paste again to expand" hint label while a collapsed paste is armed,
+   * or null when nothing is armed. The compositor renders it on the editor
+   * box's bottom border (next to the selection hint) rather than below the box.
+   * Self-clears if the placeholder has since been deleted.
    */
-  private appendPasteExpandHint(lines: string[], width: number): string[] {
+  getPasteExpandHintText(): string | null {
     const hint = this.pasteExpandHint;
-    if (!hint) return lines;
+    if (!hint) return null;
 
     const state = Reflect.get(this, "state");
     const stateLines = state && typeof state === "object" ? Reflect.get(state, "lines") : null;
     const text = Array.isArray(stateLines) ? stateLines.join("\n") : "";
     if (!pasteMarkerRegex(hint.markerId).test(text)) {
       this.pasteExpandHint = null;
-      return lines;
+      return null;
     }
 
-    if (visibleWidth(PASTE_EXPAND_HINT_LABEL) + 1 >= width) return lines;
-    return [...lines, ` \x1b[2m${PASTE_EXPAND_HINT_LABEL}\x1b[22m`];
+    return PASTE_EXPAND_HINT_LABEL;
   }
 
   private isShellCompletionContext(): boolean {
