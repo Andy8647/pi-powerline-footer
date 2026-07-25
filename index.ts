@@ -2930,6 +2930,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
           ctx.ui.notify("Sent interrupt to shell", "info");
         },
         onNotify: (message, level = "info") => ctx.ui.notify(message, level),
+        pasteCollapseLines: config.pasteCollapseLines,
         getHistoryEntries: (prefix) => getShellHistoryEntries(prefix),
         resolveGhostSuggestion: async (text, signal) => {
           const oneOffBash = getOneOffBashCommandContext(text);

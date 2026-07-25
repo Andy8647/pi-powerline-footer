@@ -721,7 +721,7 @@ test("bash editor inserts Finder file drops as path strings", async () => {
   }
 });
 
-async function makePasteEditor() {
+async function makePasteEditor(pasteCollapseLines?: number) {
   const { BashModeEditor } = await import("../bash-mode/editor.ts");
   const { KeybindingsManager } = await import(new URL("../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js", import.meta.url).href);
   const keybindings = KeybindingsManager.create();
@@ -739,6 +739,7 @@ async function makePasteEditor() {
       onNotify() {},
       getHistoryEntries: () => [],
       resolveGhostSuggestion: async () => null,
+      pasteCollapseLines,
     },
   );
   return editor;
@@ -821,6 +822,62 @@ test("bash editor does not arm the hint for a small inline paste", async () => {
     editor.handleInput(bracketedPaste("just two\nshort lines"));
 
     assert.equal(editor.getText(), "just two\nshort lines");
+    assert.equal(editor.getPasteExpandHintText(), null);
+  } finally {
+    links.cleanup();
+  }
+});
+
+const THREE_LINE_PASTE = "one\ntwo\nthree";
+
+test("bash editor collapses at a configured lower line threshold", async () => {
+  const links = ensureEditorModuleLinks();
+  try {
+    const editor = await makePasteEditor(3);
+    editor.handleInput(bracketedPaste(THREE_LINE_PASTE));
+
+    assert.match(editor.getText(), /\[paste #1 \+3 lines\]/);
+    assert.equal(editor.getExpandedText(), THREE_LINE_PASTE);
+    assert.equal(editor.getPasteExpandHintText(), HINT);
+  } finally {
+    links.cleanup();
+  }
+});
+
+test("bash editor keeps a 3-line paste inline at the default threshold", async () => {
+  const links = ensureEditorModuleLinks();
+  try {
+    const editor = await makePasteEditor();
+    editor.handleInput(bracketedPaste(THREE_LINE_PASTE));
+
+    assert.equal(editor.getText(), THREE_LINE_PASTE);
+    assert.equal(editor.getPasteExpandHintText(), null);
+  } finally {
+    links.cleanup();
+  }
+});
+
+test("bash editor does not collapse below the configured threshold", async () => {
+  const links = ensureEditorModuleLinks();
+  try {
+    const editor = await makePasteEditor(3);
+    editor.handleInput(bracketedPaste("one\ntwo"));
+
+    assert.equal(editor.getText(), "one\ntwo");
+    assert.equal(editor.getPasteExpandHintText(), null);
+  } finally {
+    links.cleanup();
+  }
+});
+
+test("bash editor expands a threshold-collapsed placeholder on re-paste", async () => {
+  const links = ensureEditorModuleLinks();
+  try {
+    const editor = await makePasteEditor(3);
+    editor.handleInput(bracketedPaste(THREE_LINE_PASTE));
+    editor.handleInput(bracketedPaste(THREE_LINE_PASTE));
+
+    assert.equal(editor.getText(), THREE_LINE_PASTE);
     assert.equal(editor.getPasteExpandHintText(), null);
   } finally {
     links.cleanup();

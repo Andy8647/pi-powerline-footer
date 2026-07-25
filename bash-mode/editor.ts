@@ -24,6 +24,8 @@ interface BashModeEditorOptions {
   onNotify: (message: string, level?: "info" | "warning" | "error") => void;
   getHistoryEntries: (prefix: string) => string[];
   resolveGhostSuggestion: (text: string, signal: AbortSignal) => Promise<GhostSuggestion | null>;
+  /** Minimum pasted-line count that collapses into a marker. Default 11 = pi's threshold. */
+  pasteCollapseLines?: number;
 }
 
 const DEFAULT_EDITOR_BOUNDARY_SHORTCUTS: EditorBoundaryShortcuts = {
@@ -125,6 +127,14 @@ export class BashModeEditor extends CustomEditor {
     super(tui, theme, keybindings);
     this.keybindingsRef = keybindings;
     this.optionsRef = options;
+
+    // pi's Editor.handlePaste is private (no clean class override) and hardcodes
+    // its collapse threshold. Shadow it with an instance property that captures
+    // the inherited method, so a lower configured threshold can take over the
+    // range pi leaves inline. Runtime-only: TS `private` is not enforced here.
+    const self = this as unknown as { handlePaste: (text: string) => void };
+    const baseHandlePaste = self.handlePaste.bind(this);
+    self.handlePaste = (text: string) => this.handlePasteWithThreshold(text, baseHandlePaste);
   }
 
   setAutocompleteProvider(provider: AutocompleteProvider): void {
@@ -365,6 +375,67 @@ export class BashModeEditor extends CustomEditor {
     const ghost = `\x1b[38;5;244m${shownSuffix}\x1b[0m`;
     lines[contentLine] = `${text}${cursorBlock}${ghost}${padding}`;
     return lines;
+  }
+
+  /**
+   * Collapse pastes at a lower line count than pi's built-in threshold.
+   *
+   * pi's Editor.handlePaste only collapses into a `[paste #N ...]` marker at
+   * > 10 lines (or > 1000 chars), hardcoded. When `pasteCollapseLines` is set
+   * lower (2–10), take over the medium range pi leaves inline and collapse it
+   * into an identical marker, so submit-expansion and paste-again-to-expand are
+   * unchanged. Every other case defers to the captured base implementation.
+   */
+  private handlePasteWithThreshold(pastedText: string, base: (text: string) => void): void {
+    const minLines = this.optionsRef.pasteCollapseLines ?? 11;
+    const pastes = this.readPasteMap();
+    const normalizeText = (this as unknown as { normalizeText?: (t: string) => string }).normalizeText;
+
+    if (minLines < 2 || minLines > 10 || !pastes || typeof normalizeText !== "function") {
+      base(pastedText);
+      return;
+    }
+
+    // Mirror pi's pre-collapse cleaning so we make the same decision and store
+    // byte-identical content: decode tmux CSI-u control re-encoding, normalize
+    // line endings/tabs, then drop non-printables except newlines.
+    const decoded = pastedText.replace(/\x1b\[(\d+);5u/g, (match, code) => {
+      const cp = Number(code);
+      if (cp >= 97 && cp <= 122) return String.fromCharCode(cp - 96);
+      if (cp >= 65 && cp <= 90) return String.fromCharCode(cp - 64);
+      return match;
+    });
+    const filtered = normalizeText.call(this, decoded)
+      .split("")
+      .filter((char: string) => char === "\n" || char.charCodeAt(0) >= 32)
+      .join("");
+
+    const lineCount = filtered.split("\n").length;
+    const piCollapses = lineCount > 10 || filtered.length > 1000;
+    const weCollapse = lineCount >= minLines;
+
+    // Defer when pi already collapses, when we would not collapse either, or
+    // when the paste looks like a dropped path (pi special-cases those).
+    if (piCollapses || !weCollapse || /^[/~.]/.test(filtered)) {
+      base(pastedText);
+      return;
+    }
+
+    const editor = this as unknown as {
+      cancelAutocomplete?: () => void;
+      exitHistoryBrowsing?: () => void;
+      pushUndoSnapshot?: () => void;
+      insertTextAtCursorInternal?: (text: string) => void;
+    };
+    editor.cancelAutocomplete?.();
+    editor.exitHistoryBrowsing?.();
+    Reflect.set(this, "lastAction", null);
+    editor.pushUndoSnapshot?.();
+
+    const id = this.readPasteCounter() + 1;
+    Reflect.set(this, "pasteCounter", id);
+    pastes.set(id, filtered);
+    editor.insertTextAtCursorInternal?.(`[paste #${id} +${lineCount} lines]`);
   }
 
   /** The pi-tui editor's monotonic paste id counter (0 when unavailable). */

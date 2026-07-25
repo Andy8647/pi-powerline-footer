@@ -31,6 +31,13 @@ export interface PowerlineConfig {
   welcome: boolean;
   stashSharpSShortcut: boolean;
   editorBox: EditorBoxStyle;
+  /**
+   * Minimum pasted-line count that collapses into a `[paste #N ...]` marker.
+   * Default 11 matches pi's built-in threshold (collapse at > 10 lines).
+   * Set lower (2–10) to collapse shorter pastes; values outside 2–10 disable
+   * the override and fall back to pi's default.
+   */
+  pasteCollapseLines: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -357,6 +364,7 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     welcome: true,
     stashSharpSShortcut: false,
     editorBox: "rounded",
+    pasteCollapseLines: 11,
   };
 
   const directPreset = normalizePreset(value, presets);
@@ -396,7 +404,20 @@ export function parsePowerlineConfig(value: unknown, presets: readonly StatusLin
     welcome: value.welcome !== false,
     stashSharpSShortcut: value.stashSharpSShortcut === true,
     editorBox: value.editorBox === "flat" ? "flat" : "rounded",
+    pasteCollapseLines: normalizePasteCollapseLines(value.pasteCollapseLines),
   };
+}
+
+/**
+ * Clamp the paste-collapse line threshold to the actionable 2–10 range.
+ * Anything else (undefined, non-number, <2, >10) means "use pi's default"
+ * and is normalized to 11 (pi collapses at > 10 lines).
+ */
+function normalizePasteCollapseLines(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 11;
+  const lines = Math.floor(value);
+  if (lines < 2 || lines > 10) return 11;
+  return lines;
 }
 
 export function mergeSegmentsWithCustomItems(

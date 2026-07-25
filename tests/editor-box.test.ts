@@ -70,3 +70,18 @@ test("parsePowerlineConfig falls back on an invalid box style or prompt color", 
   assert.equal(config.editorBox, "rounded");
   assert.equal(config.promptColor, "#cba6f7");
 });
+
+test("parsePowerlineConfig defaults pasteCollapseLines to pi's threshold", () => {
+  assert.equal(parsePowerlineConfig({ preset: "default" }, PRESETS).pasteCollapseLines, 11);
+});
+
+test("parsePowerlineConfig accepts a lower pasteCollapseLines in the 2-10 range", () => {
+  assert.equal(parsePowerlineConfig({ preset: "default", pasteCollapseLines: 3 }, PRESETS).pasteCollapseLines, 3);
+  assert.equal(parsePowerlineConfig({ preset: "default", pasteCollapseLines: 3.9 }, PRESETS).pasteCollapseLines, 3);
+});
+
+test("parsePowerlineConfig ignores out-of-range or non-numeric pasteCollapseLines", () => {
+  for (const bad of [1, 0, -5, 11, 50, "3", null, true]) {
+    assert.equal(parsePowerlineConfig({ preset: "default", pasteCollapseLines: bad }, PRESETS).pasteCollapseLines, 11);
+  }
+});
